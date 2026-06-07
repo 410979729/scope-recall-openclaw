@@ -1,0 +1,61 @@
+{
+  "name": "scope-recall-openclaw",
+  "version": "1.1.0-beta.11",
+  "description": "OpenClaw scope recall memory layer with SQL truth, FTS, rebuildable LanceDB vectors, multi-scope isolation, and management CLI",
+  "type": "module",
+  "main": "dist/index.js",
+  "files": [
+    "LICENSE",
+    "README.md",
+    "cli.ts",
+    "dist/",
+    "index.ts",
+    "openclaw.plugin.json",
+    "scripts/",
+    "skills/",
+    "src/"
+  ],
+  "scripts": {
+    "smoke:vector-repair": "node scripts/smoke-vector-repair.mjs",
+    "release:gate": "node scripts/release-gate.mjs"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "memory",
+    "scope-recall",
+    "sql-truth",
+    "lancedb",
+    "vector-search",
+    "bm25",
+    "hybrid-retrieval",
+    "rerank",
+    "ai-memory",
+    "long-term-memory",
+    "chunking",
+    "long-context"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/410979729/scope-recall-openclaw.git"
+  },
+  "author": "win4r",
+  "license": "MIT",
+  "dependencies": {
+    "@lancedb/lancedb": "^0.26.2",
+    "@sinclair/typebox": "0.34.48",
+    "apache-arrow": "18.1.0",
+    "jiti": "^2.6.1",
+    "json5": "^2.2.3",
+    "openai": "^6.21.0",
+    "proper-lockfile": "^4.1.2"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "runtimeExtensions": [
+      "./dist/index.js"
+    ]
+  }
+}

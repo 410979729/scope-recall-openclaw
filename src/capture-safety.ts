@@ -1,0 +1,162 @@
+export type CaptureSafetyReason =
+  | "empty"
+  | "injected-context"
+  | "system-wrapper"
+  | "context-compaction"
+  | "secret";
+
+export interface CaptureSafetyDecision {
+  allowed: boolean;
+  reason?: CaptureSafetyReason;
+  pattern?: string;
+}
+
+type SecretPattern = {
+  name: string;
+  re: RegExp;
+  valueIndex?: number;
+};
+
+function looksLikePlaceholder(value: string): boolean {
+  const lower = value.toLowerCase();
+  return (
+    value.includes("${") ||
+    value.includes("...") ||
+    lower.includes("example") ||
+    lower.includes("placeholder") ||
+    lower.includes("dummy") ||
+    lower.includes("test-key") ||
+    lower.includes("your-key") ||
+    lower.includes("changeme")
+  );
+}
+
+const SECRET_PATTERNS: SecretPattern[] = [
+  {
+    name: "private-key-block",
+    re: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/i,
+  },
+  {
+    name: "authorization-bearer",
+    re: /\bAuthorization\s*:\s*Bearer\s+([A-Za-z0-9._~+/=-]{12,})(?=$|\s|[,;])/i,
+    valueIndex: 1,
+  },
+  {
+    name: "credentialed-url",
+    re: /\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/\s:@]+:([^@\s/]+)@[^/\s]+/i,
+    valueIndex: 1,
+  },
+  {
+    name: "password-assignment-quoted-special",
+    re: /\b(?:password|passwd|pwd)\b\s*[:=]\s*["'`](?=[^"'`\r\n]*[^A-Za-z0-9\s])([^"'`\r\n]{6,})["'`]/i,
+    valueIndex: 1,
+  },
+  {
+    name: "password-assignment-unquoted-special",
+    re: /\b(?:password|passwd|pwd)\b\s*[:=]\s*(?=[^\s"',;)}\]]*[^A-Za-z0-9\s])([^\s"',;)}\]]{6,})/i,
+    valueIndex: 1,
+  },
+  {
+    name: "secret-assignment",
+    re: /\b(?:api[_-]?key|apikey|secret|token|password|passwd|private[_-]?key|client[_-]?secret|access[_-]?key|refresh[_-]?token)\b\s*[:=]\s*["'`]?([A-Za-z0-9_./+=:@-]{16,})/i,
+    valueIndex: 1,
+  },
+  {
+    name: "openai-style-key",
+    re: /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/,
+  },
+  {
+    name: "github-token",
+    re: /\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}\b/,
+  },
+  {
+    name: "slack-token",
+    re: /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/,
+  },
+  {
+    name: "google-api-key",
+    re: /\bAIza[0-9A-Za-z_-]{20,}\b/,
+  },
+  {
+    name: "aws-access-key",
+    re: /\bAKIA[0-9A-Z]{16}\b/,
+  },
+  {
+    name: "jwt",
+    re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/,
+  },
+];
+
+const INJECTED_CONTEXT_PATTERNS: Array<{ name: string; re: RegExp }> = [
+  { name: "relevant-memories", re: /<\/?relevant-memories>/i },
+  { name: "untrusted-data-block", re: /\[UNTRUSTED DATA[^\]]*\][\s\S]*?\[END UNTRUSTED DATA\]/i },
+  { name: "openclaw-runtime-context", re: /OpenClaw runtime context for this turn:/i },
+  { name: "workspace-context", re: /## OpenClaw Workspace Context/i },
+  { name: "conversation-metadata", re: /Conversation info \(untrusted metadata\):/i },
+  { name: "sender-metadata", re: /Sender \(untrusted metadata\):/i },
+  { name: "message-metadata-json", re: /```json[\s\S]*"message_id"[\s\S]*"sender_id"[\s\S]*```/i },
+];
+
+const SYSTEM_WRAPPER_PATTERNS: Array<{ name: string; re: RegExp }> = [
+  { name: "system-exec-line", re: /^System:\s*\[[^\n]*\]\s*Exec\s+(?:completed|failed|started)\b/im },
+  { name: "session-reset-wrapper", re: /^A new session was started via \/new or \/reset\./i },
+  { name: "current-user-request-wrapper", re: /^Current user request:/im },
+];
+
+const CONTEXT_COMPACTION_PATTERNS: Array<{ name: string; re: RegExp }> = [
+  { name: "turn-context-split", re: /Turn Context \(split turn\):/i },
+  { name: "compaction-summary", re: /^## (?:Goal|Progress|Decisions|Open TODOs|Constraints\/Rules|Pending user asks|Exact identifiers)\b/m },
+  { name: "critical-context-block", re: /^## Critical Context\b/m },
+];
+
+function matchPattern(
+  patterns: Array<{ name: string; re: RegExp }>,
+  text: string,
+): { name: string } | null {
+  for (const pattern of patterns) {
+    if (pattern.re.test(text)) return { name: pattern.name };
+  }
+  return null;
+}
+
+function matchSecret(text: string): { name: string } | null {
+  for (const pattern of SECRET_PATTERNS) {
+    const match = pattern.re.exec(text);
+    if (!match) continue;
+    const value = pattern.valueIndex ? match[pattern.valueIndex] ?? "" : match[0] ?? "";
+    if (value && looksLikePlaceholder(value)) continue;
+    return { name: pattern.name };
+  }
+  return null;
+}
+
+export function evaluateCaptureSafety(text: string): CaptureSafetyDecision {
+  const trimmed = text.trim();
+  if (!trimmed) return { allowed: false, reason: "empty" };
+
+  const injected = matchPattern(INJECTED_CONTEXT_PATTERNS, trimmed);
+  if (injected) {
+    return { allowed: false, reason: "injected-context", pattern: injected.name };
+  }
+
+  const wrapper = matchPattern(SYSTEM_WRAPPER_PATTERNS, trimmed);
+  if (wrapper) {
+    return { allowed: false, reason: "system-wrapper", pattern: wrapper.name };
+  }
+
+  const compaction = matchPattern(CONTEXT_COMPACTION_PATTERNS, trimmed);
+  if (compaction) {
+    return { allowed: false, reason: "context-compaction", pattern: compaction.name };
+  }
+
+  const secret = matchSecret(trimmed);
+  if (secret) {
+    return { allowed: false, reason: "secret", pattern: secret.name };
+  }
+
+  return { allowed: true };
+}
+
+export function isCaptureSafeText(text: string): boolean {
+  return evaluateCaptureSafety(text).allowed;
+}
