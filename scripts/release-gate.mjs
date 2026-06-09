@@ -39,6 +39,21 @@ assert(pkg.name === manifest.id, `package name ${pkg.name} does not match manife
 assert(pkg.version === manifest.version, `package version ${pkg.version} does not match manifest version ${manifest.version}`);
 assert(pkg.main === "dist/index.js", `unexpected package main: ${pkg.main}`);
 assert(pkg.dependencies?.jiti, "package.json must include jiti for the dist wrapper");
+assert(
+  pkg.repository?.url === "git+https://github.com/410979729/scope-recall-openclaw.git",
+  `package repository points at the wrong URL: ${pkg.repository?.url ?? "missing"}`,
+);
+assert(
+  pkg.bugs?.url === "https://github.com/410979729/scope-recall-openclaw/issues",
+  "package.json must expose the GitHub issues URL",
+);
+assert(
+  pkg.homepage === "https://github.com/410979729/scope-recall-openclaw#readme",
+  "package.json must expose the GitHub README homepage",
+);
+for (const requiredDoc of ["DESIGN.md", "CHANGELOG.md", "SECURITY.md", "CONTRIBUTING.md"]) {
+  await readFile(path.join(root, requiredDoc), "utf8");
+}
 
 const distIndex = await readFile(path.join(root, "dist/index.js"), "utf8");
 assert(distIndex.includes("../index.ts"), "dist/index.js must load ../index.ts");
@@ -155,6 +170,7 @@ assertCaptureSafetyProbes();
 await assertCliRegistrationSmoke();
 
 run(process.execPath, ["scripts/smoke-vector-repair.mjs"]);
+run(process.execPath, ["--test", "tests/package-quality.test.mjs"]);
 
 const packRaw = run("npm", ["pack", "--dry-run", "--json"]);
 const pack = JSON.parse(packRaw)[0];
@@ -163,5 +179,16 @@ assert(files.length > 0, "npm pack produced an empty file list");
 assert(!files.some((file) => file.includes("node_modules/")), "npm pack includes node_modules");
 assert(files.includes("openclaw.plugin.json"), "npm pack is missing openclaw.plugin.json");
 assert(files.includes("dist/index.js"), "npm pack is missing dist/index.js");
+for (const requiredPackFile of [
+  "CHANGELOG.md",
+  "CONTRIBUTING.md",
+  "DESIGN.md",
+  "SECURITY.md",
+  "docs/github-actions-ci-template.yml",
+  "docs/parity-roadmap.md",
+  "tests/package-quality.test.mjs",
+]) {
+  assert(files.includes(requiredPackFile), `npm pack is missing ${requiredPackFile}`);
+}
 
 console.log("release:gate ok");
