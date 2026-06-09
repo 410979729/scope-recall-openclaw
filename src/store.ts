@@ -15,6 +15,7 @@ import {
 import { dirname, join } from "node:path";
 import { buildSmartMetadata, isMemoryActiveAt, parseSmartMetadata, stringifySmartMetadata } from "./smart-metadata.js";
 import { SqlTruthStore, type SqlTruthFtsReport } from "./sql-truth-store.js";
+import { SqliteBruteForceVectorStore } from "./sqlite-vector-store.js";
 
 // ============================================================================
 // Types
@@ -39,6 +40,7 @@ export interface MemorySearchResult {
 export interface StoreConfig {
   dbPath: string;
   vectorDim: number;
+  vectorBackend?: "lancedb" | "sqlite-bruteforce";
 }
 
 export interface MetadataPatch {
@@ -62,6 +64,7 @@ export interface MemoryStoreDiagnostics {
     needsRepair: boolean;
     message: string | null;
     configuredDimension: number;
+    backend: "lancedb" | "sqlite-bruteforce";
   };
 }
 
@@ -250,7 +253,9 @@ export class MemoryStore {
   private db: LanceDB.Connection | null = null;
   private table: LanceDB.Table | null = null;
   private sqlTruthStore: SqlTruthStore | null = null;
+  private sqliteVectorStore: SqliteBruteForceVectorStore | null = null;
   private initPromise: Promise<void> | null = null;
+  private initialized = false;
   private ftsIndexCreated = false;
   private updateQueue: Promise<void> = Promise.resolve();
   private vectorCompanionError: string | null = null;
@@ -276,7 +281,7 @@ export class MemoryStore {
   }
 
   private async ensureInitialized(): Promise<void> {
-    if (this.table) {
+    if (this.initialized) {
       return;
     }
     if (this.initPromise) {
@@ -291,6 +296,16 @@ export class MemoryStore {
   }
 
   private async doInitialize(): Promise<void> {
+    if (this.config.vectorBackend === "sqlite-bruteforce") {
+      await this.initializeSqlTruthStore([]);
+      const sqliteVectorStore = new SqliteBruteForceVectorStore(this.config.dbPath, this.config.vectorDim);
+      sqliteVectorStore.open();
+      this.sqliteVectorStore = sqliteVectorStore;
+      this.vectorCompanionError = null;
+      this.initialized = true;
+      return;
+    }
+
     const lancedb = await loadLanceDB();
 
     let db: LanceDB.Connection;
@@ -404,6 +419,7 @@ export class MemoryStore {
     this.db = db;
     this.table = table;
     await this.initializeSqlTruthStore();
+    this.initialized = true;
   }
 
   private rowToEntry(row: Record<string, unknown>, includeVector: boolean): MemoryEntry {
@@ -420,27 +436,29 @@ export class MemoryStore {
     };
   }
 
-  private async initializeSqlTruthStore(): Promise<void> {
-    if (!this.table) return;
+  private async initializeSqlTruthStore(sourceEntries?: MemoryEntry[]): Promise<void> {
     try {
       const truth = new SqlTruthStore(join(this.config.dbPath, "memory.sqlite3"));
       truth.open();
-      const rows = await this.table.query().select([
-        "id",
-        "text",
-        "category",
-        "scope",
-        "importance",
-        "timestamp",
-        "metadata",
-      ]).toArray();
-      const entries = rows
-        .filter((row: any) => row?.id && row?.text !== undefined)
-        .map((row: any) => this.rowToEntry(row, false));
+      let entries = sourceEntries;
+      if (!entries && this.table) {
+        const rows = await this.table.query().select([
+          "id",
+          "text",
+          "category",
+          "scope",
+          "importance",
+          "timestamp",
+          "metadata",
+        ]).toArray();
+        entries = rows
+          .filter((row: any) => row?.id && row?.text !== undefined)
+          .map((row: any) => this.rowToEntry(row, false));
+      }
       // SQL is the authority once present. Startup may import rows from the
       // older LanceDB-only store, but must never delete SQL rows just because
       // the companion vector table is stale or missing them.
-      truth.reconcile(entries, { deleteMissing: false });
+      truth.reconcile(entries ?? [], { deleteMissing: false });
       this.sqlTruthStore = truth;
       console.log(
         `scope-recall-openclaw: SQL truth companion ready (${truth.count()} rows -> ${truth.path})`,
@@ -495,7 +513,11 @@ export class MemoryStore {
 
   private async addVectorCompanion(entry: MemoryEntry, operation: string): Promise<void> {
     try {
-      await this.table!.add([entry as any]);
+      if (this.sqliteVectorStore) {
+        this.sqliteVectorStore.upsert(entry);
+      } else {
+        await this.table!.add([entry as any]);
+      }
       this.vectorCompanionError = null;
     } catch (err) {
       this.markVectorCompanionNeedsRepair(operation, err);
@@ -504,7 +526,11 @@ export class MemoryStore {
 
   private async deleteVectorCompanionById(id: string, operation: string): Promise<void> {
     try {
-      await this.table!.delete(`id = '${escapeSqlLiteral(id)}'`);
+      if (this.sqliteVectorStore) {
+        this.sqliteVectorStore.delete(id);
+      } else {
+        await this.table!.delete(`id = '${escapeSqlLiteral(id)}'`);
+      }
       this.vectorCompanionError = null;
     } catch (err) {
       this.markVectorCompanionNeedsRepair(operation, err);
@@ -538,6 +564,7 @@ export class MemoryStore {
   }
 
   private async getVectorEntryById(id: string): Promise<MemoryEntry | null> {
+    if (this.sqliteVectorStore) return this.sqliteVectorStore.getById(id);
     if (!this.table) return null;
     const rows = await this.table
       .query()
@@ -549,6 +576,7 @@ export class MemoryStore {
   }
 
   private async listVectorIds(): Promise<string[]> {
+    if (this.sqliteVectorStore) return this.sqliteVectorStore.listIds();
     if (!this.table) return [];
     const rows = await this.table.query().select(["id"]).toArray();
     return rows
@@ -711,6 +739,7 @@ export class MemoryStore {
   async hasId(id: string): Promise<boolean> {
     await this.ensureInitialized();
     if (this.sqlTruthStore?.getById(id)) return true;
+    if (this.sqliteVectorStore) return false;
 
     const safeId = escapeSqlLiteral(id);
     const res = await this.table!.query()
@@ -728,6 +757,7 @@ export class MemoryStore {
 
     const sqlEntry = this.sqlTruthStore?.getById(id, scopeFilter);
     if (sqlEntry) return sqlEntry;
+    if (this.sqliteVectorStore) return null;
 
     const safeId = escapeSqlLiteral(id);
     const rows = await this.table!
@@ -767,6 +797,14 @@ export class MemoryStore {
     const inactiveFilter = options?.excludeInactive ?? false;
     const overFetchMultiplier = inactiveFilter ? 20 : 10;
     const fetchLimit = Math.min(safeLimit * overFetchMultiplier, 200);
+
+    if (this.sqliteVectorStore) {
+      const sqliteResults = this.sqliteVectorStore.search(vector, fetchLimit, minScore, scopeFilter);
+      const filtered = inactiveFilter
+        ? sqliteResults.filter((result) => isMemoryActiveAt(parseSmartMetadata(result.entry.metadata, result.entry)))
+        : sqliteResults;
+      return filtered.slice(0, safeLimit);
+    }
 
     let query = this.table!.vectorSearch(vector).distanceType('cosine').limit(fetchLimit);
 
@@ -839,6 +877,7 @@ export class MemoryStore {
 
     const sqlResults = this.searchSqlTruth(query, safeLimit, scopeFilter, options);
     if (sqlResults.length > 0) return sqlResults;
+    if (this.sqliteVectorStore) return [];
 
     if (!this.ftsIndexCreated) {
       return this.lexicalFallbackSearch(query, safeLimit, scopeFilter, options);
@@ -1485,12 +1524,14 @@ export class MemoryStore {
     needsRepair: boolean;
     message: string | null;
     configuredDimension: number;
+    backend: "lancedb" | "sqlite-bruteforce";
   } {
     return {
       ready: this.vectorCompanionError === null,
       needsRepair: this.vectorCompanionError !== null,
       message: this.vectorCompanionError,
       configuredDimension: this.config.vectorDim,
+      backend: this.sqliteVectorStore ? "sqlite-bruteforce" : "lancedb",
     };
   }
 
@@ -1532,6 +1573,7 @@ export class MemoryStore {
 
   async getVectorScopeCounts(): Promise<Record<string, number>> {
     await this.ensureInitialized();
+    if (this.sqliteVectorStore) return this.sqliteVectorStore.scopeCounts();
     if (!this.table) return {};
 
     const rows = await this.table.query().select(["id", "scope"]).toArray();
@@ -1586,7 +1628,7 @@ export class MemoryStore {
 
     return this.runWithFileLock(async () => {
       for (const id of staleVectorIds) {
-        await this.table!.delete(`id = '${escapeSqlLiteral(id)}'`);
+        await this.deleteVectorCompanionById(id, "repair-delete-stale-vector");
         result.staleVectorRowsDeleted++;
       }
 
@@ -1597,10 +1639,8 @@ export class MemoryStore {
         result.skipped += batch.length - rebuiltEntries.length;
 
         for (const entry of rebuiltEntries) {
-          await this.table!.delete(`id = '${escapeSqlLiteral(entry.id)}'`);
-        }
-        if (rebuiltEntries.length > 0) {
-          await this.table!.add(rebuiltEntries as any[]);
+          await this.deleteVectorCompanionById(entry.id, "repair-delete-old-vector");
+          await this.addVectorCompanion(entry, "repair-add-vector");
           result.rebuilt += rebuiltEntries.length;
         }
       }
@@ -1618,6 +1658,9 @@ export class MemoryStore {
   /** Rebuild FTS index (drops and recreates). Useful for recovery after corruption. */
   async rebuildFtsIndex(): Promise<{ success: boolean; error?: string }> {
     await this.ensureInitialized();
+    if (this.sqliteVectorStore) {
+      return { success: true };
+    }
     try {
       // Drop existing FTS index if any
       const indices = await this.table!.listIndices();
@@ -1655,6 +1698,14 @@ export class MemoryStore {
     limit = 200,
   ): Promise<MemoryEntry[]> {
     await this.ensureInitialized();
+
+    if (this.sqliteVectorStore) {
+      return this.sqliteVectorStore
+        .listEntriesWithVectors()
+        .filter((entry) => entry.timestamp < maxTimestamp)
+        .filter((entry) => !scopeFilter || scopeFilter.length === 0 || scopeFilter.includes(entry.scope || "global"))
+        .slice(0, limit);
+    }
 
     const conditions: string[] = [`timestamp < ${maxTimestamp}`];
 

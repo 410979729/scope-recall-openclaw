@@ -47,12 +47,29 @@ test("manifest exposes the expected OpenClaw memory tools", async () => {
 
   assert.equal(manifest.kind, "memory");
   assert.equal(manifest.configSchema?.additionalProperties, false);
+  assert.ok(manifest.configSchema?.properties?.vectorBackend, "manifest configSchema is missing vectorBackend");
+  assert.ok(
+    manifest.configSchema?.properties?.embedding?.properties?.provider?.enum?.includes("local-hash"),
+    "manifest embedding.provider enum is missing local-hash",
+  );
+  assert.ok(
+    !manifest.configSchema?.properties?.embedding?.required?.includes("apiKey"),
+    "manifest embedding.apiKey must not be universally required",
+  );
 });
 
 test("docs state the OpenClaw and Hermes boundary", async () => {
   const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
   const roadmap = await readFile(new URL("../docs/parity-roadmap.md", import.meta.url), "utf8");
+  const audit = await readFile(new URL("../docs/hermes-parity-audit-2026-06-09.md", import.meta.url), "utf8");
 
   assert.match(readme, /not a one-for-one Hermes plugin copy/i);
   assert.match(roadmap, /Hermes-Only Surfaces Not Yet Claimed/);
+  assert.match(roadmap, /sqlite-bruteforce/);
+  assert.match(roadmap, /local-hash/);
+  assert.match(readme, /sqlite-bruteforce/);
+  assert.match(readme, /local-hash/);
+  assert.match(audit, /Yuheng Hermes plugin/);
+  assert.match(audit, /Native-Free Vector Fallback/);
+  assert.match(audit, /Offline Embedding Fallback/);
 });

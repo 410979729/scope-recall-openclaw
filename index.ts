@@ -92,8 +92,8 @@ import { analyzeIntent, applyCategoryBoost } from "./src/intent-analyzer.js";
 
 interface PluginConfig {
   embedding: {
-    provider: "openai-compatible";
-    apiKey: string | string[];
+    provider: "openai-compatible" | "azure-openai" | "local-hash" | "local-debug";
+    apiKey?: string | string[];
     model?: string;
     baseURL?: string;
     dimensions?: number;
@@ -104,6 +104,7 @@ interface PluginConfig {
     chunking?: boolean;
   };
   dbPath?: string;
+  vectorBackend?: "lancedb" | "sqlite-bruteforce";
   autoCapture?: boolean;
   autoRecall?: boolean;
   autoRecallMinLength?: number;
@@ -1776,7 +1777,7 @@ const scopeRecallOpenClawPlugin = {
   id: "scope-recall-openclaw",
   name: "Scope Recall OpenClaw",
   description:
-    "OpenClaw scope recall memory layer with SQL truth, FTS, rebuildable LanceDB vectors, multi-scope isolation, and management CLI",
+    "OpenClaw scope recall memory layer with SQL truth, FTS, rebuildable vectors, multi-scope isolation, and management CLI",
   kind: "memory" as const,
 
   register(api: OpenClawPluginApi) {
@@ -1796,17 +1797,21 @@ const scopeRecallOpenClawPlugin = {
       );
     }
 
-    const vectorDim = getVectorDimensions(
-      config.embedding.model || "text-embedding-3-small",
-      config.embedding.dimensions,
-    );
+    const defaultEmbeddingModel =
+      config.embedding.provider === "local-debug"
+        ? "debug-hash-v1"
+        : config.embedding.provider === "local-hash"
+          ? "hash-v1"
+          : "text-embedding-3-small";
+    const embeddingModel = config.embedding.model || defaultEmbeddingModel;
+    const vectorDim = getVectorDimensions(embeddingModel, config.embedding.dimensions);
 
     // Initialize core components
-    const store = new MemoryStore({ dbPath: resolvedDbPath, vectorDim });
+    const store = new MemoryStore({ dbPath: resolvedDbPath, vectorDim, vectorBackend: config.vectorBackend });
     const embedder = createEmbedder({
-      provider: "openai-compatible",
+      provider: config.embedding.provider,
       apiKey: config.embedding.apiKey,
-      model: config.embedding.model || "text-embedding-3-small",
+      model: embeddingModel,
       baseURL: config.embedding.baseURL,
       dimensions: config.embedding.dimensions,
       omitDimensions: config.embedding.omitDimensions,
@@ -2264,7 +2269,7 @@ const scopeRecallOpenClawPlugin = {
 
     const logReg = isCliRegistrationMode(api) ? api.logger.debug : api.logger.info;
     logReg(
-      `scope-recall-openclaw@${pluginVersion}: plugin registered (db: ${resolvedDbPath}, model: ${config.embedding.model || "text-embedding-3-small"}, smartExtraction: ${smartExtractor ? 'ON' : 'OFF'})`
+      `scope-recall-openclaw@${pluginVersion}: plugin registered (db: ${resolvedDbPath}, model: ${embeddingModel}, vectorBackend: ${config.vectorBackend || "lancedb"}, smartExtraction: ${smartExtractor ? 'ON' : 'OFF'})`
     );
     logReg(`scope-recall-openclaw: diagnostic build tag loaded (${DIAG_BUILD_TAG})`);
 
@@ -3978,8 +3983,24 @@ export function parsePluginConfig(value: unknown): PluginConfig {
     throw new Error("embedding config is required");
   }
 
+  const requestedProvider =
+    embedding.provider === "azure-openai" ||
+    embedding.provider === "local-hash" ||
+    embedding.provider === "local-debug" ||
+    embedding.provider === "openai-compatible"
+      ? embedding.provider
+      : undefined;
+  const hasConfiguredApiKey =
+    typeof embedding.apiKey === "string"
+      ? embedding.apiKey.trim().length > 0
+      : Array.isArray(embedding.apiKey) && embedding.apiKey.length > 0;
+  const hasEnvApiKey = Boolean(process.env.OPENAI_API_KEY?.trim());
+  const embeddingProvider =
+    requestedProvider ?? (hasConfiguredApiKey || hasEnvApiKey ? "openai-compatible" : "local-hash");
+  const localEmbeddingProvider = embeddingProvider === "local-hash" || embeddingProvider === "local-debug";
+
   // Accept single key (string) or array of keys for round-robin rotation
-  let apiKey: string | string[];
+  let apiKey: string | string[] | undefined;
   if (typeof embedding.apiKey === "string") {
     apiKey = embedding.apiKey;
   } else if (Array.isArray(embedding.apiKey) && embedding.apiKey.length > 0) {
@@ -3997,10 +4018,10 @@ export function parsePluginConfig(value: unknown): PluginConfig {
     // apiKey is present but wrong type — throw, don't silently fall back
     throw new Error("embedding.apiKey must be a string or non-empty array of strings");
   } else {
-    apiKey = process.env.OPENAI_API_KEY || "";
+    apiKey = localEmbeddingProvider ? undefined : process.env.OPENAI_API_KEY || "";
   }
 
-  if (!apiKey || (Array.isArray(apiKey) && apiKey.length === 0)) {
+  if (!localEmbeddingProvider && (!apiKey || (Array.isArray(apiKey) && apiKey.length === 0))) {
     throw new Error("embedding.apiKey is required (set directly or via OPENAI_API_KEY env var)");
   }
 
@@ -4038,12 +4059,14 @@ export function parsePluginConfig(value: unknown): PluginConfig {
 
   return {
     embedding: {
-      provider: "openai-compatible",
+      provider: embeddingProvider,
       apiKey,
       model:
         typeof embedding.model === "string"
           ? embedding.model
-          : "text-embedding-3-small",
+          : localEmbeddingProvider
+            ? (embeddingProvider === "local-debug" ? "debug-hash-v1" : "hash-v1")
+            : "text-embedding-3-small",
       baseURL:
         typeof embedding.baseURL === "string"
           ? resolveEnvVars(embedding.baseURL)
@@ -4073,6 +4096,10 @@ export function parsePluginConfig(value: unknown): PluginConfig {
           : undefined,
     },
     dbPath: typeof cfg.dbPath === "string" ? cfg.dbPath : undefined,
+    vectorBackend:
+      cfg.vectorBackend === "sqlite-bruteforce" || cfg.vectorBackend === "lancedb"
+        ? cfg.vectorBackend
+        : "lancedb",
     autoCapture: cfg.autoCapture !== false,
     // Default OFF: only enable when explicitly set to true.
     autoRecall: cfg.autoRecall === true,

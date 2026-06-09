@@ -59,6 +59,7 @@ assert(pkg.openclaw?.release?.publishToClawHub === true, "package.json must opt 
 for (const requiredDoc of ["DESIGN.md", "CHANGELOG.md", "SECURITY.md", "CONTRIBUTING.md"]) {
   await readFile(path.join(root, requiredDoc), "utf8");
 }
+await readFile(path.join(root, "docs", "hermes-parity-audit-2026-06-09.md"), "utf8");
 
 const distIndex = await readFile(path.join(root, "dist/index.js"), "utf8");
 assert(distIndex.includes("../index.ts"), "dist/index.js must load ../index.ts");
@@ -68,8 +69,18 @@ const schemaProps = manifest.configSchema?.properties ?? {};
 const uiHints = manifest.uiHints ?? {};
 assert(schemaProps.autoRecallTimeoutMs, "configSchema is missing autoRecallTimeoutMs");
 assert(schemaProps.recallMode, "configSchema is missing recallMode");
+assert(schemaProps.vectorBackend, "configSchema is missing vectorBackend");
+assert(
+  schemaProps.embedding?.properties?.provider?.enum?.includes("local-hash"),
+  "configSchema embedding.provider enum must include local-hash",
+);
+assert(
+  !schemaProps.embedding?.required?.includes("apiKey"),
+  "configSchema embedding.apiKey must not be universally required",
+);
 assert(uiHints.autoRecallTimeoutMs, "uiHints is missing autoRecallTimeoutMs");
 assert(uiHints.recallMode, "uiHints is missing recallMode");
+assert(uiHints.vectorBackend, "uiHints is missing vectorBackend");
 
 const distModule = await import(pathToFileURL(path.join(root, "dist/index.js")).href);
 const pluginEntry = distModule.default;
@@ -106,6 +117,16 @@ function assertParserBehavior() {
   });
   assert(off.recallMode === "off", "parsePluginConfig must preserve recallMode=off");
   assert(off.autoRecallTimeoutMs === 6789, "parsePluginConfig must preserve numeric autoRecallTimeoutMs");
+
+  const localFallback = parsePluginConfig({ embedding: {} });
+  assert(localFallback.embedding.provider === "local-hash", "parsePluginConfig must fall back to local-hash when no API key is configured");
+  assert(localFallback.embedding.model === "hash-v1", "parsePluginConfig must default local-hash to hash-v1");
+
+  const sqliteBackend = parsePluginConfig({
+    embedding: { provider: "local-hash" },
+    vectorBackend: "sqlite-bruteforce",
+  });
+  assert(sqliteBackend.vectorBackend === "sqlite-bruteforce", "parsePluginConfig must preserve vectorBackend=sqlite-bruteforce");
 }
 
 function assertCaptureBlocked(text, pattern) {
@@ -176,6 +197,7 @@ await assertCliRegistrationSmoke();
 
 run(process.execPath, ["scripts/smoke-vector-repair.mjs"]);
 run(process.execPath, ["--test", "tests/package-quality.test.mjs"]);
+run(process.execPath, ["--test", "tests/fallbacks.test.mjs"]);
 
 const packRaw = run("npm", ["pack", "--dry-run", "--json"]);
 const pack = JSON.parse(packRaw)[0];
@@ -190,7 +212,10 @@ for (const requiredPackFile of [
   "DESIGN.md",
   "SECURITY.md",
   "docs/github-actions-ci-template.yml",
+  "docs/hermes-parity-audit-2026-06-09.md",
   "docs/parity-roadmap.md",
+  "src/sqlite-vector-store.ts",
+  "tests/fallbacks.test.mjs",
   "tests/package-quality.test.mjs",
 ]) {
   assert(files.includes(requiredPackFile), `npm pack is missing ${requiredPackFile}`);

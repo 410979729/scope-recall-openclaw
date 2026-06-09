@@ -790,7 +790,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
             `• SQL truth: ${diagnostics.sqlTruth.available ? `Yes (${diagnostics.sqlTruth.count} rows, FTS ${diagnostics.sqlTruth.fts?.healthy ? 'healthy' : 'needs repair'})` : 'No'}`
           );
           console.log(
-            `• Vector companion: ${diagnostics.vectorCompanion.needsRepair ? `needs repair (${diagnostics.vectorCompanion.message})` : 'ready'}`
+            `• Vector companion: ${diagnostics.vectorCompanion.backend} ${diagnostics.vectorCompanion.needsRepair ? `needs repair (${diagnostics.vectorCompanion.message})` : 'ready'}`
           );
           console.log();
 
@@ -846,7 +846,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
           issues.push(`Stale vector rows: ${vectorDrift.staleVectorRows}`);
         }
         if (!sqlVectorScopeMatch) {
-          issues.push("SQL truth and LanceDB scope distributions differ");
+          issues.push("SQL truth and vector companion scope distributions differ");
         }
         if (scopeWarnings.length > 0) {
           issues.push(`Scope warning: ${scopeWarnings.map((item) => `${item.scope}:${item.count}`).join(", ")}`);
@@ -881,6 +881,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
         console.log(`• Status: ${summary.ok ? "ok" : "issues found"}`);
         console.log(`• SQL truth: ${diagnostics.sqlTruth.available ? `${diagnostics.sqlTruth.count} rows` : "unavailable"}`);
         console.log(`• FTS: ${diagnostics.sqlTruth.fts?.healthy ? "healthy" : "needs repair or unavailable"}`);
+        console.log(`• Vector backend: ${diagnostics.vectorCompanion.backend}`);
         console.log(`• Vector dimension: ${diagnostics.vectorCompanion.configuredDimension}`);
         console.log(`• Vector rows: ${vectorDrift.vectorRows}`);
         console.log(`• Missing vector rows: ${vectorDrift.missingVectorRows}`);

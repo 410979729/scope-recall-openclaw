@@ -8,6 +8,8 @@
 - OpenClaw CLI commands with `scope-recall` and `memory-pro` aliases.
 - SQLite truth plus FTS diagnostics.
 - Rebuildable LanceDB vector companion.
+- Native-free `sqlite-bruteforce` vector companion fallback.
+- Degraded no-key `local-hash` embedding fallback.
 - Capture safety for common secret patterns.
 - Auto-recall, auto-capture, session reflection, and self-improvement hooks for OpenClaw sessions.
 - Release gate for manifest/package consistency and package hygiene.
@@ -23,6 +25,9 @@ These are roadmap candidates, not current OpenClaw guarantees:
 - Hermes-specific shared durable versus local scratch scope semantics.
 - Hermes memory-provider packaging through `pyproject.toml` and `plugin.yaml`.
 
+For the current gap analysis against Yuheng's Hermes `scope-recall` `1.0.9`,
+see [`hermes-parity-audit-2026-06-09.md`](hermes-parity-audit-2026-06-09.md).
+
 ## Promotion Criteria
 
 Before claiming first-class parity with Hermes `scope-recall`, the OpenClaw package should have:
@@ -32,6 +37,9 @@ Before claiming first-class parity with Hermes `scope-recall`, the OpenClaw pack
 - CI that runs tests and release gate on every push and pull request.
 - A signed-off package tarball inspection showing no `node_modules`, databases, logs, backups, or credentials.
 - Live doctor output showing SQL truth, FTS, and vector companion are healthy on at least one OpenClaw instance.
+- Native-free vector fallback tests for hosts where LanceDB cannot load safely.
+- Documented degraded/offline embedding fallback tests.
+- Scope-isolation tests that prove local scratch rows do not bleed between OpenClaw chats, threads, users, or agent identities.
 
 ## Non-Goals
 

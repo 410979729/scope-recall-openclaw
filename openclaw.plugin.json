@@ -1,8 +1,8 @@
 {
   "id": "scope-recall-openclaw",
   "name": "Scope Recall OpenClaw",
-  "description": "OpenClaw scope recall memory layer with SQL truth, FTS, rebuildable LanceDB vectors, multi-scope isolation, and management CLI",
-  "version": "1.0.8",
+  "description": "OpenClaw scope recall memory layer with SQL truth, FTS, rebuildable vectors, multi-scope isolation, and management CLI",
+  "version": "1.0.9",
   "kind": "memory",
   "contracts": {
     "tools": [
@@ -34,7 +34,9 @@
             "type": "string",
             "enum": [
               "openai-compatible",
-              "azure-openai"
+              "azure-openai",
+              "local-hash",
+              "local-debug"
             ]
           },
           "apiKey": {
@@ -52,7 +54,7 @@
                 "minItems": 1
               }
             ],
-            "description": "Single API key or array of keys for round-robin rotation"
+            "description": "Single API key or array of keys for hosted embedding providers. Optional when using local-hash/local-debug."
           },
           "model": {
             "type": "string"
@@ -89,13 +91,19 @@
             "type": "string",
             "description": "API version for Azure OpenAI (e.g. 2024-02-01). Only used when provider is azure-openai."
           }
-        },
-        "required": [
-          "apiKey"
-        ]
+        }
       },
       "dbPath": {
         "type": "string"
+      },
+      "vectorBackend": {
+        "type": "string",
+        "enum": [
+          "lancedb",
+          "sqlite-bruteforce"
+        ],
+        "default": "lancedb",
+        "description": "Vector companion backend. lancedb is recommended for production semantic search; sqlite-bruteforce is native-free and rebuildable for compatibility fallback."
       },
       "enableManagementTools": {
         "type": "boolean",
@@ -864,11 +872,17 @@
     ]
   },
   "uiHints": {
+    "embedding.provider": {
+      "label": "Embedding Provider",
+      "placeholder": "openai-compatible",
+      "help": "Use openai-compatible or azure-openai for production semantic embeddings. Use local-hash only as a degraded no-key fallback.",
+      "advanced": true
+    },
     "embedding.apiKey": {
       "label": "API Key(s)",
       "sensitive": true,
       "placeholder": "sk-proj-... or [\"key1\", \"key2\"] for rotation",
-      "help": "Single API key or array of keys for round-robin rotation with automatic failover on rate limits (or use ${OPENAI_API_KEY}; use a dummy value for keyless local endpoints)"
+      "help": "Single API key or array of keys for hosted providers with automatic failover on rate limits. Not required when embedding.provider is local-hash/local-debug."
     },
     "embedding.model": {
       "label": "Embedding Model",
@@ -917,7 +931,13 @@
     "dbPath": {
       "label": "Database Path",
       "placeholder": "~/.openclaw/memory/scope-recall-openclaw",
-      "help": "Directory path for the LanceDB database files",
+      "help": "Directory path for SQL truth and the rebuildable vector companion",
+      "advanced": true
+    },
+    "vectorBackend": {
+      "label": "Vector Backend",
+      "placeholder": "lancedb",
+      "help": "Choose lancedb for production semantic retrieval or sqlite-bruteforce for a native-free compatibility fallback.",
       "advanced": true
     },
     "smartExtraction": {

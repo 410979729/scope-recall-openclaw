@@ -84,10 +84,10 @@ class EmbeddingCache {
 // ============================================================================
 
 export interface EmbeddingConfig {
-  provider: "openai-compatible" | "azure-openai";
+  provider: "openai-compatible" | "azure-openai" | "local-hash" | "local-debug";
   apiVersion?: string;
   /** Single API key or array of keys for round-robin rotation with failover. */
-  apiKey: string | string[];
+  apiKey?: string | string[];
   model: string;
   baseURL?: string;
   dimensions?: number;
@@ -134,6 +134,8 @@ interface EmbeddingCapabilities {
 
 // Known embedding model dimensions
 const EMBEDDING_DIMENSIONS: Record<string, number> = {
+  "hash-v1": 256,
+  "debug-hash-v1": 16,
   "text-embedding-3-small": 1536,
   "text-embedding-3-large": 3072,
   "text-embedding-004": 768,
@@ -391,6 +393,110 @@ export function getVectorDimensions(model: string, overrideDims?: number): numbe
   return dims;
 }
 
+const LOCAL_HASH_TOKEN_RE = /[a-zA-Z0-9]{2,}|[\u4e00-\u9fff]{1,}/g;
+
+function localHashTokens(text: string): string[] {
+  const tokens = new Set<string>();
+  for (const match of (text || "").toLowerCase().matchAll(LOCAL_HASH_TOKEN_RE)) {
+    const token = match[0].trim();
+    if (!token) continue;
+    tokens.add(token);
+    if (token.length > 3) {
+      for (let i = 0; i <= token.length - 3; i++) {
+        tokens.add(token.slice(i, i + 3));
+      }
+    }
+  }
+  if (tokens.size === 0 && text.trim()) {
+    tokens.add(text.trim().toLowerCase().slice(0, 64));
+  }
+  return [...tokens];
+}
+
+function normalizeVector(vector: number[]): number[] {
+  const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
+  if (norm <= 0) return vector;
+  return vector.map((value) => value / norm);
+}
+
+export class LocalHashEmbedder {
+  public readonly dimensions: number;
+  public readonly model: string;
+  public readonly provider: "local-hash" | "local-debug";
+
+  constructor(config: { provider?: "local-hash" | "local-debug"; model?: string; dimensions?: number }) {
+    this.provider = config.provider === "local-debug" ? "local-debug" : "local-hash";
+    this.model = config.model || (this.provider === "local-debug" ? "debug-hash-v1" : "hash-v1");
+    this.dimensions = getVectorDimensions(this.model, config.dimensions);
+  }
+
+  async embed(text: string): Promise<number[]> {
+    return this.embedPassage(text);
+  }
+
+  async embedBatch(texts: string[]): Promise<number[][]> {
+    return this.embedBatchPassage(texts);
+  }
+
+  async embedQuery(text: string): Promise<number[]> {
+    return this.embedOne(text);
+  }
+
+  async embedPassage(text: string): Promise<number[]> {
+    return this.embedOne(text);
+  }
+
+  async embedBatchQuery(texts: string[]): Promise<number[][]> {
+    return texts.map((text) => this.embedOneSync(text));
+  }
+
+  async embedBatchPassage(texts: string[]): Promise<number[][]> {
+    return texts.map((text) => this.embedOneSync(text));
+  }
+
+  async test(): Promise<{ success: boolean; error?: string; dimensions?: number }> {
+    try {
+      const embedding = await this.embedPassage("test");
+      return { success: true, dimensions: embedding.length };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  get keyCount(): number {
+    return 0;
+  }
+
+  get cacheStats() {
+    return {
+      size: 0,
+      hits: 0,
+      misses: 0,
+      hitRate: "N/A",
+      keyCount: 0,
+      provider: this.provider,
+    };
+  }
+
+  private async embedOne(text: string): Promise<number[]> {
+    return this.embedOneSync(text);
+  }
+
+  private embedOneSync(text: string): number[] {
+    if (!text || text.trim().length === 0) {
+      throw new Error("Cannot embed empty text");
+    }
+    const vector = new Array(this.dimensions).fill(0);
+    for (const token of localHashTokens(text)) {
+      const digest = createHash("sha1").update(token).digest();
+      const index = digest.readUInt32BE(0) % this.dimensions;
+      const sign = digest[4] % 2 === 0 ? 1 : -1;
+      vector[index] += sign;
+    }
+    return normalizeVector(vector);
+  }
+}
+
 // ============================================================================
 // Embedder Class
 // ============================================================================
@@ -420,6 +526,9 @@ export class Embedder {
 
   constructor(config: EmbeddingConfig & { chunking?: boolean }) {
     // Normalize apiKey to array and resolve environment variables
+    if (!config.apiKey) {
+      throw new Error("embedding.apiKey is required for hosted embedding providers");
+    }
     const apiKeys = Array.isArray(config.apiKey) ? config.apiKey : [config.apiKey];
     const resolvedKeys = apiKeys.map(k => resolveEnvVars(k));
 
@@ -1018,6 +1127,13 @@ export class Embedder {
 // Factory Function
 // ============================================================================
 
-export function createEmbedder(config: EmbeddingConfig): Embedder {
+export function createEmbedder(config: EmbeddingConfig): Embedder | LocalHashEmbedder {
+  if (config.provider === "local-hash" || config.provider === "local-debug") {
+    return new LocalHashEmbedder({
+      provider: config.provider,
+      model: config.model,
+      dimensions: config.dimensions,
+    });
+  }
   return new Embedder(config);
 }

@@ -5,7 +5,8 @@
 ## Goals
 
 - Keep SQLite as the canonical truth layer.
-- Treat LanceDB as a rebuildable vector companion.
+- Treat vector storage as a rebuildable companion.
+- Keep a native-free vector backend available for hosts where LanceDB cannot load safely.
 - Support OpenClaw dynamic tools and CLI commands without depending on Hermes plugin APIs.
 - Fail open on recall and fail closed on unsafe capture.
 - Keep release packages small, public, and free of runtime state.
@@ -23,7 +24,9 @@ OpenClaw integration surfaces:
 
 ## Storage Layers
 
-SQLite stores the authoritative memory rows, categories, metadata, FTS rows, and audit-friendly state. LanceDB stores vector rows derived from SQLite. If LanceDB is stale, missing, or dimension-mismatched, operators should rebuild it from SQL truth rather than treat it as a second source of truth.
+SQLite stores the authoritative memory rows, categories, metadata, FTS rows, and audit-friendly state. The vector companion stores rows derived from SQLite. LanceDB is the default production backend; `sqlite-bruteforce` stores vectors in a separate SQLite database and scans them locally for native-free compatibility. If the vector companion is stale, missing, or dimension-mismatched, operators should rebuild it from SQL truth rather than treat it as a second source of truth.
+
+Hosted embedding providers are recommended for semantic quality. `local-hash` exists for no-key bootstrap, testability, and degraded offline availability. It produces deterministic lexical hash vectors and is intentionally labeled as a fallback rather than a high-quality semantic model.
 
 The intended repair loop is:
 

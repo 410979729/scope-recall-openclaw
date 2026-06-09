@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.9
+
+- Added native-free `sqlite-bruteforce` vector companion backend while keeping SQLite truth authoritative.
+- Added degraded no-key `local-hash` / `local-debug` embedding fallback for bootstrap and tests.
+- Updated diagnostics so stats/doctor report the active vector backend.
+- Added fallback tests for local embeddings and OpenClaw scope isolation on the SQLite vector backend.
+- Updated Hermes parity docs after closing the native-free vector and offline embedding gaps.
+
 ## 1.0.8
 
 - Aligned OpenClaw port metadata with the Hermes `scope-recall` `1.0.8` release line.

@@ -1,13 +1,15 @@
 # scope-recall-openclaw
 
-OpenClaw scope recall memory layer backed by SQLite SQL truth, FTS, and a rebuildable LanceDB vector companion.
+OpenClaw scope recall memory layer backed by SQLite SQL truth, FTS, and a rebuildable vector companion.
 
 ## What It Does
 
 - Stores long-term memories with scope isolation.
 - Retrieves by hybrid vector + BM25 search.
 - Keeps SQLite as the authoritative truth layer.
-- Treats LanceDB vectors as a rebuildable companion index.
+- Treats vectors as a rebuildable companion index.
+- Supports a production LanceDB vector backend and a native-free `sqlite-bruteforce` fallback.
+- Supports hosted semantic embeddings and a degraded no-key `local-hash` fallback.
 - Provides management commands through `openclaw scope-recall`.
 - Keeps `openclaw memory-pro` as a legacy command alias for existing operators.
 
@@ -19,7 +21,7 @@ It is no longer just a rename of that project. As OpenClaw's scoped-memory requi
 
 ## Relationship to Hermes `scope-recall`
 
-`scope-recall-openclaw` is the OpenClaw runtime port of the same storage philosophy used by the Hermes `scope-recall` plugin: SQLite truth first, LanceDB as a rebuildable vector companion, hybrid retrieval, scoped recall, and conservative capture.
+`scope-recall-openclaw` is the OpenClaw runtime port of the same storage philosophy used by the Hermes `scope-recall` plugin: SQLite truth first, rebuildable vector companion, hybrid retrieval, scoped recall, and conservative capture.
 
 This package is not a one-for-one Hermes plugin copy. It is adapted to OpenClaw's plugin API, hooks, session model, and tool names. OpenClaw-specific capabilities include:
 
@@ -32,7 +34,7 @@ Hermes-only V1 surfaces such as `scope_recall_context`, entity probe/related/fee
 
 ## Storage Model
 
-`memory.sqlite3` is the truth store. LanceDB is used for vector retrieval and can be rebuilt from SQL truth with:
+`memory.sqlite3` is the truth store. The default vector companion is LanceDB. Set `vectorBackend: "sqlite-bruteforce"` to use the native-free SQLite vector companion on hosts where LanceDB, PyArrow, or CPU-native dependencies are unsafe. Both vector backends are rebuildable from SQL truth with:
 
 ```bash
 openclaw scope-recall repair-vectors --dry-run
@@ -40,6 +42,8 @@ openclaw scope-recall repair-vectors
 ```
 
 Use `--limit <n>` for small test runs. When `--limit` is set, stale-vector pruning is disabled so partial repairs cannot delete unrelated vector rows.
+
+Hosted embedding providers remain the recommended production path. If `embedding.provider` is `local-hash`, or if no hosted API key is configured, the plugin can generate deterministic local vectors with `hash-v1`. This mode is meant for bootstrap, tests, and degraded offline availability; it is not a semantic-quality replacement for a real embedding model.
 
 ## Diagnostics
 
