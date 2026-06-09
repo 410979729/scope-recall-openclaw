@@ -10,6 +10,7 @@
 - Rebuildable LanceDB vector companion.
 - Native-free `sqlite-bruteforce` vector companion fallback.
 - Degraded no-key `local-hash` embedding fallback.
+- Read-only OpenClaw inspection tools: `memory_context` and `memory_inspect`.
 - Capture safety for common secret patterns.
 - Auto-recall, auto-capture, session reflection, and self-improvement hooks for OpenClaw sessions.
 - Release gate for manifest/package consistency and package hygiene.
@@ -18,9 +19,8 @@
 
 These are roadmap candidates, not current OpenClaw guarantees:
 
-- `scope_recall_context`.
 - Entity probe, related entity, and feedback tools.
-- `scope_recall_inspect`, `scope_recall_explain`, and `scope_recall_benchmark`.
+- Benchmark-style recall checks and broader governance/export flows.
 - Nightly workflow digest.
 - Hermes-specific shared durable versus local scratch scope semantics.
 - Hermes memory-provider packaging through `pyproject.toml` and `plugin.yaml`.

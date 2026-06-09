@@ -26,11 +26,13 @@ It is no longer just a rename of that project. As OpenClaw's scoped-memory requi
 This package is not a one-for-one Hermes plugin copy. It is adapted to OpenClaw's plugin API, hooks, session model, and tool names. OpenClaw-specific capabilities include:
 
 - OpenClaw dynamic tools: `memory_recall`, `memory_store`, `memory_forget`, and `memory_update`.
-- Optional operator and inspection tools when enabled: `memory_stats`, `memory_debug`, `memory_list`, `memory_promote`, `memory_archive`, `memory_compact`, and `memory_explain_rank`.
+- Optional operator and inspection tools when enabled: `memory_stats`, `memory_debug`, `memory_list`, `memory_context`, `memory_inspect`, `memory_promote`, `memory_archive`, `memory_compact`, and `memory_explain_rank`.
 - OpenClaw command aliases: `openclaw scope-recall` and compatibility alias `openclaw memory-pro`.
 - OpenClaw session hooks for auto-recall, auto-capture, session memory, memory reflection, and self-improvement reminders.
 
-Hermes-only V1 surfaces such as `scope_recall_context`, entity probe/related/feedback tools, `scope_recall_inspect`, `scope_recall_explain`, `scope_recall_benchmark`, nightly workflow digest, and Hermes-specific shared-durable/local-scratch scope semantics remain separate roadmap items until they have OpenClaw-native UX, tests, and operator documentation.
+Hermes-only V1 surfaces such as entity probe/related/feedback tools, `scope_recall_benchmark`, nightly workflow digest, and Hermes-specific shared-durable/local-scratch scope semantics remain separate roadmap items until they have OpenClaw-native UX, tests, and operator documentation.
+
+`memory_context` and `memory_inspect` are OpenClaw-native inspection tools, not direct Hermes name copies. They are read-only management tools for checking accessible memory context, single-record lifecycle metadata, relations, source/state/layer filters, and scope boundaries before changing recall behavior.
 
 ## Storage Model
 

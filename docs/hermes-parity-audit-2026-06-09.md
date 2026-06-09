@@ -8,7 +8,8 @@ claim that every Hermes surface should be copied into OpenClaw unchanged.
 
 - OpenClaw public package checkout: `scope-recall-openclaw` after the
   native-free vector and local embedding fallback implementation, package
-  version `1.0.10` after this description polish pass.
+  version `1.0.11` as the Tianquan canary candidate for read-only
+  observability tools.
 - OpenClaw live extension directory:
   `/home/a/openclaw-tianji/home/state/extensions/scope-recall-openclaw`, brought
   back onto the public release line after previously reporting a live-only beta
@@ -26,8 +27,9 @@ claim that every Hermes surface should be copied into OpenClaw unchanged.
 - Dynamic OpenClaw memory tools:
   `memory_recall`, `memory_store`, `memory_forget`, and `memory_update`.
 - Optional operator and inspection tools:
-  `memory_stats`, `memory_debug`, `memory_list`, `memory_promote`,
-  `memory_archive`, `memory_compact`, and `memory_explain_rank`.
+  `memory_stats`, `memory_debug`, `memory_list`, `memory_context`,
+  `memory_inspect`, `memory_promote`, `memory_archive`, `memory_compact`,
+  and `memory_explain_rank`.
 - OpenClaw session hooks for auto recall, auto capture, memory reflection,
   session recovery, and self-improvement review.
 - Release package hygiene: docs, security policy, contribution guide, package
@@ -97,6 +99,17 @@ OpenClaw should not copy those names blindly. It should provide equivalent
 OpenClaw-native surfaces where useful, with management operations gated and
 documented.
 
+OpenClaw now has the first read-only observability slice:
+
+- `memory_context` lists accessible context with query/scope/category plus
+  source/state/layer filters.
+- `memory_inspect` inspects one memory by id, prefix, or query and returns
+  lifecycle metadata, fact keys, relation hints, and L0/L1/L2 content when
+  requested.
+
+Remaining work in this P1 group: feedback tooling, entity graph lookup,
+operator export/governance flows, and benchmark-style recall checks.
+
 ### P1 - Stable Shared-Durable / Local-Scratch Scope Contract
 
 Hermes V1 has a documented split:
@@ -135,7 +148,8 @@ This should be implemented only after the scope contract is settled.
 2. Add native-free vector backend support and doctor/stats coverage.
 3. Add explicit offline/degraded embedding fallback.
 4. Add scope-isolation tests for OpenClaw's runtime context model.
-5. Add OpenClaw-native context/probe/feedback/inspect/explain/benchmark tools.
+5. Extend the OpenClaw-native context/inspect slice into probe, feedback,
+   export/governance, and benchmark tooling.
 6. Add nightly digest or an OpenClaw-native equivalent.
 
 ## Non-Goals

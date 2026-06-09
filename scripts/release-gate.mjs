@@ -37,6 +37,10 @@ const manifest = await readJson("openclaw.plugin.json");
 
 assert(pkg.name === manifest.id, `package name ${pkg.name} does not match manifest id ${manifest.id}`);
 assert(pkg.version === manifest.version, `package version ${pkg.version} does not match manifest version ${manifest.version}`);
+const contractTools = new Set(manifest.contracts?.tools ?? []);
+for (const expectedTool of ["memory_context", "memory_inspect"]) {
+  assert(contractTools.has(expectedTool), `manifest contracts.tools is missing ${expectedTool}`);
+}
 assert(pkg.main === "dist/index.js", `unexpected package main: ${pkg.main}`);
 assert(pkg.dependencies?.jiti, "package.json must include jiti for the dist wrapper");
 assert(
@@ -62,8 +66,14 @@ for (const requiredDoc of ["DESIGN.md", "CHANGELOG.md", "SECURITY.md", "CONTRIBU
 await readFile(path.join(root, "docs", "hermes-parity-audit-2026-06-09.md"), "utf8");
 
 const distIndex = await readFile(path.join(root, "dist/index.js"), "utf8");
+const sourceIndex = await readFile(path.join(root, "index.ts"), "utf8");
 assert(distIndex.includes("../index.ts"), "dist/index.js must load ../index.ts");
 assert(distIndex.includes("createJiti"), "dist/index.js must use jiti");
+assert(
+  !/api\.registerTool\(\{\s*name:\s*"memory_compact"/.test(sourceIndex),
+  "memory_compact must not use the legacy direct registerTool object shape",
+);
+assert(!/inputSchema:\s*\{/.test(sourceIndex), "runtime tools must expose parameters, not legacy inputSchema");
 
 const schemaProps = manifest.configSchema?.properties ?? {};
 const uiHints = manifest.uiHints ?? {};
@@ -85,6 +95,8 @@ assert(uiHints.vectorBackend, "uiHints is missing vectorBackend");
 const distModule = await import(pathToFileURL(path.join(root, "dist/index.js")).href);
 const pluginEntry = distModule.default;
 assert(pluginEntry?.register, "dist/index.js must export a plugin entry with register()");
+assert(pluginEntry.name === manifest.name, "runtime plugin name must match openclaw.plugin.json");
+assert(pluginEntry.description === manifest.description, "runtime plugin description must match openclaw.plugin.json");
 
 const { createJiti } = require("jiti");
 const jiti = createJiti(path.join(root, "scripts", "release-gate.mjs"), {

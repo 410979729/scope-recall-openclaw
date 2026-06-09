@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.11
+
+- Added read-only `memory_context` and `memory_inspect` management tools for OpenClaw-native memory observability.
+- Exposed context filtering by query, scope, category, source, state, and memory layer.
+- Added single-record inspection for lifecycle metadata, fact keys, relation hints, and L0/L1/L2 content.
+- Aligned runtime plugin metadata with the manifest so Gateway inspection uses the public package name and description.
+- Removed a duplicate legacy `memory_compact` tool registration that newer OpenClaw runtimes reject.
+- Added tests and release-gate checks so observability tools and runtime metadata stay aligned.
+
 ## 1.0.10
 
 - Polished public package and ClawHub-facing descriptions so the plugin presents as a focused OpenClaw memory layer rather than a mechanical feature list.

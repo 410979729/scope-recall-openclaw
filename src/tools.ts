@@ -9,7 +9,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { MemoryRetriever, RetrievalResult } from "./retriever.js";
-import type { MemoryStore } from "./store.js";
+import type { MemoryEntry, MemoryStore } from "./store.js";
 import { isNoise } from "./noise-filter.js";
 import { evaluateCaptureSafety } from "./capture-safety.js";
 import { isSystemBypassId, resolveScopeFilter, parseAgentIdFromSessionKey, type MemoryScopeManager } from "./scopes.js";
@@ -114,6 +114,73 @@ function sanitizeMemoryForSerialization(results: RetrievalResult[]) {
     score: r.score,
     sources: r.sources,
   }));
+}
+
+function serializeMemoryEntry(entry: MemoryEntry, includeFullText = false) {
+  const metadata = parseSmartMetadata(entry.metadata, entry);
+  const base = {
+    id: entry.id,
+    text: includeFullText
+      ? metadata.l2_content || metadata.l1_overview || entry.text
+      : truncateText(normalizeInlineText(metadata.l0_abstract || entry.text), 220),
+    category: getDisplayCategoryTag(entry),
+    rawCategory: entry.category,
+    scope: entry.scope,
+    importance: entry.importance,
+    timestamp: entry.timestamp,
+    state: metadata.state,
+    layer: metadata.memory_layer,
+    source: metadata.source,
+    tier: metadata.tier,
+    confidence: metadata.confidence,
+    factKey: metadata.fact_key,
+    validFrom: metadata.valid_from,
+    invalidatedAt: metadata.invalidated_at,
+    supersedes: metadata.supersedes,
+    supersededBy: metadata.superseded_by,
+    canonicalId: metadata.canonical_id,
+    relations: metadata.relations ?? [],
+  };
+  return includeFullText
+    ? {
+      ...base,
+      l0Abstract: metadata.l0_abstract,
+      l1Overview: metadata.l1_overview,
+      l2Content: metadata.l2_content,
+    }
+    : base;
+}
+
+function renderMemoryEntry(entry: MemoryEntry, index?: number, includeFullText = false): string {
+  const metadata = parseSmartMetadata(entry.metadata, entry);
+  const prefix = index === undefined ? "" : `${index + 1}. `;
+  const categoryTag = getDisplayCategoryTag(entry);
+  const date = new Date(entry.timestamp).toISOString().split("T")[0];
+  const sourceBits = [
+    metadata.state,
+    metadata.memory_layer,
+    metadata.source,
+    metadata.tier,
+  ].filter(Boolean).join("/");
+  const text = includeFullText
+    ? normalizeInlineText(metadata.l2_content || metadata.l1_overview || entry.text)
+    : truncateText(normalizeInlineText(metadata.l0_abstract || entry.text), 180);
+  return `${prefix}[${entry.id}] [${categoryTag}:${entry.scope}] ${text} (${date}; ${sourceBits})`;
+}
+
+function memoryMetadataMatches(
+  entry: MemoryEntry,
+  filters: {
+    source?: string;
+    state?: string;
+    layer?: string;
+  },
+): boolean {
+  const metadata = parseSmartMetadata(entry.metadata, entry);
+  if (filters.source && metadata.source !== filters.source) return false;
+  if (filters.state && metadata.state !== filters.state) return false;
+  if (filters.layer && metadata.memory_layer !== filters.layer) return false;
+  return true;
 }
 
 const _warnedMissingAgentId = new Set<string>();
@@ -1683,6 +1750,255 @@ export function registerMemoryListTool(
   );
 }
 
+export function registerMemoryContextTool(
+  api: OpenClawPluginApi,
+  context: ToolContext,
+) {
+  api.registerTool(
+    (toolCtx) => {
+      const runtimeContext = resolveToolContext(context, toolCtx);
+      return {
+        name: "memory_context",
+        label: "Memory Context",
+        description:
+          "Inspect the current accessible memory context with optional query, scope, category, source, state, and layer filters.",
+        parameters: Type.Object({
+          query: Type.Optional(Type.String({ description: "Optional query. When omitted, lists recent context." })),
+          limit: Type.Optional(Type.Number({ description: "Max memories to return (default: 10, max: 30)" })),
+          offset: Type.Optional(Type.Number({ description: "Number of recent memories to skip when query is omitted (default: 0)" })),
+          scope: Type.Optional(Type.String({ description: "Filter by specific accessible scope." })),
+          category: Type.Optional(stringEnum(MEMORY_CATEGORIES)),
+          source: Type.Optional(Type.Union([
+            Type.Literal("manual"),
+            Type.Literal("auto-capture"),
+            Type.Literal("reflection"),
+            Type.Literal("session-summary"),
+            Type.Literal("legacy"),
+          ])),
+          state: Type.Optional(Type.Union([
+            Type.Literal("pending"),
+            Type.Literal("confirmed"),
+            Type.Literal("archived"),
+          ])),
+          layer: Type.Optional(Type.Union([
+            Type.Literal("durable"),
+            Type.Literal("working"),
+            Type.Literal("reflection"),
+            Type.Literal("archive"),
+          ])),
+          includeFullText: Type.Optional(Type.Boolean({ description: "Return full memory text in details and rendered output." })),
+        }),
+        async execute(_toolCallId, params, _signal, _onUpdate, runtimeCtx) {
+          const {
+            query,
+            limit = 10,
+            offset = 0,
+            scope,
+            category,
+            source,
+            state,
+            layer,
+            includeFullText = false,
+          } = params as {
+            query?: string;
+            limit?: number;
+            offset?: number;
+            scope?: string;
+            category?: string;
+            source?: string;
+            state?: string;
+            layer?: string;
+            includeFullText?: boolean;
+          };
+
+          try {
+            const safeLimit = clampInt(limit, 1, 30);
+            const safeOffset = clampInt(offset, 0, 1000);
+            const agentId = resolveRuntimeAgentId(runtimeContext.agentId, runtimeCtx);
+            let scopeFilter = resolveScopeFilter(runtimeContext.scopeManager, agentId);
+            if (scope) {
+              if (!runtimeContext.scopeManager.isAccessible(scope, agentId)) {
+                return {
+                  content: [{ type: "text", text: `Access denied to scope: ${scope}` }],
+                  details: { error: "scope_access_denied", requestedScope: scope },
+                };
+              }
+              scopeFilter = [scope];
+            }
+
+            const metadataFilters = { source, state, layer };
+            let entries: MemoryEntry[];
+            if (query?.trim()) {
+              const candidateLimit = Math.min(80, Math.max(safeLimit * 4, safeLimit));
+              const results = await retrieveWithRetry(runtimeContext.retriever, {
+                query: query.trim(),
+                limit: candidateLimit,
+                scopeFilter,
+                category,
+              });
+              entries = results
+                .map((result) => result.entry)
+                .filter((entry) => memoryMetadataMatches(entry, metadataFilters))
+                .slice(0, safeLimit);
+            } else {
+              const scanLimit = Math.min(500, Math.max(safeOffset + safeLimit * 5, safeLimit));
+              entries = (await runtimeContext.store.list(scopeFilter, category, scanLimit, 0))
+                .filter((entry) => memoryMetadataMatches(entry, metadataFilters))
+                .slice(safeOffset, safeOffset + safeLimit);
+            }
+
+            if (entries.length === 0) {
+              return {
+                content: [{ type: "text", text: "No memories matched the requested context filters." }],
+                details: {
+                  action: "context",
+                  count: 0,
+                  query,
+                  filters: { scope, category, source, state, layer, limit: safeLimit, offset: safeOffset },
+                  scopes: scopeFilter,
+                },
+              };
+            }
+
+            const lines = entries.map((entry, index) => renderMemoryEntry(entry, index, includeFullText));
+            return {
+              content: [{
+                type: "text",
+                text: `Memory context (${entries.length}):\n\n${lines.join("\n")}`,
+              }],
+              details: {
+                action: "context",
+                count: entries.length,
+                query,
+                filters: { scope, category, source, state, layer, limit: safeLimit, offset: safeOffset },
+                scopes: scopeFilter,
+                memories: entries.map((entry) => serializeMemoryEntry(entry, includeFullText)),
+              },
+            };
+          } catch (error) {
+            return {
+              content: [{
+                type: "text",
+                text: `Memory context inspection failed: ${error instanceof Error ? error.message : String(error)}`,
+              }],
+              details: { error: "context_failed", message: String(error) },
+            };
+          }
+        },
+      };
+    },
+    { name: "memory_context" },
+  );
+}
+
+export function registerMemoryInspectTool(
+  api: OpenClawPluginApi,
+  context: ToolContext,
+) {
+  api.registerTool(
+    (toolCtx) => {
+      const runtimeContext = resolveToolContext(context, toolCtx);
+      return {
+        name: "memory_inspect",
+        label: "Memory Inspect",
+        description:
+          "Inspect one memory record by id/prefix or search query, including lifecycle metadata and relation hints.",
+        parameters: Type.Object({
+          memoryId: Type.Optional(Type.String({ description: "Memory id or unambiguous prefix." })),
+          query: Type.Optional(Type.String({ description: "Search query when memoryId is omitted." })),
+          scope: Type.Optional(Type.String({ description: "Optional scope filter." })),
+          includeFullText: Type.Optional(Type.Boolean({ description: "Return L0/L1/L2 content fields." })),
+        }),
+        async execute(_toolCallId, params, _signal, _onUpdate, runtimeCtx) {
+          const {
+            memoryId,
+            query,
+            scope,
+            includeFullText = true,
+          } = params as {
+            memoryId?: string;
+            query?: string;
+            scope?: string;
+            includeFullText?: boolean;
+          };
+
+          if (!memoryId && !query) {
+            return {
+              content: [{ type: "text", text: "Provide memoryId or query." }],
+              details: { error: "missing_selector" },
+            };
+          }
+
+          try {
+            const agentId = resolveRuntimeAgentId(runtimeContext.agentId, runtimeCtx);
+            let scopeFilter = resolveScopeFilter(runtimeContext.scopeManager, agentId);
+            if (scope) {
+              if (!runtimeContext.scopeManager.isAccessible(scope, agentId)) {
+                return {
+                  content: [{ type: "text", text: `Access denied to scope: ${scope}` }],
+                  details: { error: "scope_access_denied", requestedScope: scope },
+                };
+              }
+              scopeFilter = [scope];
+            }
+
+            const resolved = await resolveMemoryId(
+              runtimeContext,
+              memoryId ?? query ?? "",
+              scopeFilter,
+            );
+            if (!resolved.ok) {
+              return {
+                content: [{ type: "text", text: resolved.message }],
+                details: resolved.details ?? { error: "resolve_failed" },
+              };
+            }
+
+            const entry = await runtimeContext.store.getById(resolved.id, scopeFilter);
+            if (!entry) {
+              return {
+                content: [{ type: "text", text: `Memory ${resolved.id.slice(0, 8)} not found.` }],
+                details: { error: "not_found", id: resolved.id },
+              };
+            }
+
+            const metadata = parseSmartMetadata(entry.metadata, entry);
+            const lines = [
+              renderMemoryEntry(entry, undefined, includeFullText),
+              `state=${metadata.state} layer=${metadata.memory_layer} source=${metadata.source} tier=${metadata.tier} confidence=${metadata.confidence.toFixed(2)}`,
+              `access=${metadata.access_count} injected=${metadata.injected_count} badRecall=${metadata.bad_recall_count} suppressedUntilTurn=${metadata.suppressed_until_turn}`,
+            ];
+            if (metadata.fact_key) lines.push(`factKey=${metadata.fact_key}`);
+            if (metadata.supersedes) lines.push(`supersedes=${metadata.supersedes}`);
+            if (metadata.superseded_by) lines.push(`supersededBy=${metadata.superseded_by}`);
+            if (metadata.canonical_id) lines.push(`canonicalId=${metadata.canonical_id}`);
+            if (metadata.relations?.length) {
+              lines.push(`relations=${metadata.relations.map((rel) => `${rel.type}:${rel.targetId}`).join(", ")}`);
+            }
+
+            return {
+              content: [{ type: "text", text: lines.join("\n") }],
+              details: {
+                action: "inspect",
+                memory: serializeMemoryEntry(entry, includeFullText),
+              },
+            };
+          } catch (error) {
+            return {
+              content: [{
+                type: "text",
+                text: `Memory inspect failed: ${error instanceof Error ? error.message : String(error)}`,
+              }],
+              details: { error: "inspect_failed", message: String(error) },
+            };
+          }
+        },
+      };
+    },
+    { name: "memory_inspect" },
+  );
+}
+
 export function registerMemoryPromoteTool(
   api: OpenClawPluginApi,
   context: ToolContext,
@@ -2090,6 +2406,8 @@ export function registerAllMemoryTools(
     registerMemoryStatsTool(api, context);
     registerMemoryDebugTool(api, context);
     registerMemoryListTool(api, context);
+    registerMemoryContextTool(api, context);
+    registerMemoryInspectTool(api, context);
     registerMemoryPromoteTool(api, context);
     registerMemoryArchiveTool(api, context);
     registerMemoryCompactTool(api, context);

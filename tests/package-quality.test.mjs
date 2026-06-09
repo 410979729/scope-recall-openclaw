@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { createJiti } from "jiti";
 
 async function readJson(path) {
   return JSON.parse(await readFile(new URL(`../${path}`, import.meta.url), "utf8"));
@@ -9,13 +10,20 @@ async function readJson(path) {
 test("package metadata points at the public repository", async () => {
   const pkg = await readJson("package.json");
   const manifest = await readJson("openclaw.plugin.json");
+  const jiti = createJiti(import.meta.url, {
+    interopDefault: true,
+    moduleCache: false,
+  });
+  const pluginEntry = jiti("../index.ts").default;
 
   assert.equal(pkg.name, "scope-recall-openclaw");
   assert.equal(pkg.name, manifest.id);
   assert.equal(manifest.name, "Scope Recall for OpenClaw");
+  assert.equal(pluginEntry.name, manifest.name);
   assert.equal(pkg.version, manifest.version);
   assert.match(pkg.description, /Scoped long-term memory for OpenClaw/);
   assert.equal(pkg.description, manifest.description);
+  assert.equal(pluginEntry.description, manifest.description);
   assert.equal(pkg.repository.url, "git+https://github.com/410979729/scope-recall-openclaw.git");
   assert.equal(pkg.bugs.url, "https://github.com/410979729/scope-recall-openclaw/issues");
   assert.equal(pkg.homepage, "https://github.com/410979729/scope-recall-openclaw#readme");
@@ -42,13 +50,23 @@ test("package allowlist includes release-quality docs and tests", async () => {
 
 test("manifest exposes the expected OpenClaw memory tools", async () => {
   const manifest = await readJson("openclaw.plugin.json");
+  const indexSource = await readFile(new URL("../index.ts", import.meta.url), "utf8");
   const tools = new Set(manifest.contracts?.tools ?? []);
 
-  for (const expected of ["memory_recall", "memory_store", "memory_forget", "memory_update"]) {
+  for (const expected of [
+    "memory_recall",
+    "memory_store",
+    "memory_forget",
+    "memory_update",
+    "memory_context",
+    "memory_inspect",
+  ]) {
     assert.ok(tools.has(expected), `manifest contracts.tools is missing ${expected}`);
   }
 
   assert.equal(manifest.kind, "memory");
+  assert.doesNotMatch(indexSource, /api\.registerTool\(\{\s*name:\s*"memory_compact"/);
+  assert.doesNotMatch(indexSource, /inputSchema:\s*\{/);
   assert.equal(manifest.configSchema?.additionalProperties, false);
   assert.ok(manifest.configSchema?.properties?.vectorBackend, "manifest configSchema is missing vectorBackend");
   assert.ok(
