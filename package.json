@@ -1,7 +1,7 @@
 {
   "name": "scope-recall-openclaw",
-  "version": "1.0.9",
-  "description": "OpenClaw scope recall memory layer with SQL truth, FTS, rebuildable vectors, multi-scope isolation, and management CLI",
+  "version": "1.0.10",
+  "description": "Scoped long-term memory for OpenClaw with SQLite truth, hybrid recall, rebuildable vectors, safe capture, and native-free fallbacks",
   "type": "module",
   "main": "dist/index.js",
   "files": [

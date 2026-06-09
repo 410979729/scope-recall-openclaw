@@ -12,7 +12,10 @@ test("package metadata points at the public repository", async () => {
 
   assert.equal(pkg.name, "scope-recall-openclaw");
   assert.equal(pkg.name, manifest.id);
+  assert.equal(manifest.name, "Scope Recall for OpenClaw");
   assert.equal(pkg.version, manifest.version);
+  assert.match(pkg.description, /Scoped long-term memory for OpenClaw/);
+  assert.equal(pkg.description, manifest.description);
   assert.equal(pkg.repository.url, "git+https://github.com/410979729/scope-recall-openclaw.git");
   assert.equal(pkg.bugs.url, "https://github.com/410979729/scope-recall-openclaw/issues");
   assert.equal(pkg.homepage, "https://github.com/410979729/scope-recall-openclaw#readme");
@@ -72,4 +75,6 @@ test("docs state the OpenClaw and Hermes boundary", async () => {
   assert.match(audit, /Yuheng Hermes plugin/);
   assert.match(audit, /Native-Free Vector Fallback/);
   assert.match(audit, /Offline Embedding Fallback/);
+  assert.doesNotMatch(audit, /live extension\s+directory still reports/i);
+  assert.doesNotMatch(readme, /OpenClaw scope recall memory layer with SQL truth/);
 });

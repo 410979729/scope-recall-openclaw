@@ -1,21 +1,21 @@
 # scope-recall-openclaw
 
-OpenClaw scope recall memory layer backed by SQLite SQL truth, FTS, and a rebuildable vector companion.
+Scoped long-term memory for OpenClaw: SQLite truth, hybrid recall, conservative capture, and rebuildable vector indexes that can survive native dependency trouble.
 
-## What It Does
+## Core Guarantees
 
-- Stores long-term memories with scope isolation.
-- Retrieves by hybrid vector + BM25 search.
-- Keeps SQLite as the authoritative truth layer.
-- Treats vectors as a rebuildable companion index.
-- Supports a production LanceDB vector backend and a native-free `sqlite-bruteforce` fallback.
-- Supports hosted semantic embeddings and a degraded no-key `local-hash` fallback.
-- Provides management commands through `openclaw scope-recall`.
-- Keeps `openclaw memory-pro` as a legacy command alias for existing operators.
+- Keeps SQLite as the durable source of truth.
+- Treats vector indexes as rebuildable companions, never as the only copy.
+- Retrieves through hybrid vector + BM25 search with optional reranking.
+- Keeps capture conservative and rejects common secret-shaped text before persistence.
+- Supports LanceDB for production vector retrieval and `sqlite-bruteforce` when native dependencies are unsafe.
+- Supports hosted semantic embeddings and deterministic `local-hash` vectors for bootstrap, tests, and no-key availability.
+- Exposes OpenClaw tools and operator commands through `openclaw scope-recall`.
+- Keeps `openclaw memory-pro` as a compatibility alias for existing operators.
 
 ## Lineage
 
-This plugin grew out of the earlier LanceDB Pro / `memory-lancedb-pro` memory work. That lineage is still visible in the rebuildable LanceDB vector companion, SQL truth migration path, and the legacy `openclaw memory-pro` command alias.
+This plugin grew out of the earlier LanceDB Pro / `memory-lancedb-pro` memory work. That lineage is still visible in the rebuildable vector companion, SQL truth migration path, and the `openclaw memory-pro` compatibility alias.
 
 It is no longer just a rename of that project. As OpenClaw's scoped-memory requirements matured, this package moved onto a different route: `scope-recall-openclaw` treats SQLite as the canonical truth layer, LanceDB as a disposable companion index, and OpenClaw hooks/tools as the primary runtime surface.
 
@@ -26,11 +26,11 @@ It is no longer just a rename of that project. As OpenClaw's scoped-memory requi
 This package is not a one-for-one Hermes plugin copy. It is adapted to OpenClaw's plugin API, hooks, session model, and tool names. OpenClaw-specific capabilities include:
 
 - OpenClaw dynamic tools: `memory_recall`, `memory_store`, `memory_forget`, and `memory_update`.
-- Optional management/debug tools when enabled: `memory_stats`, `memory_debug`, `memory_list`, `memory_promote`, `memory_archive`, `memory_compact`, and `memory_explain_rank`.
-- OpenClaw command aliases: `openclaw scope-recall` and legacy `openclaw memory-pro`.
+- Optional operator and inspection tools when enabled: `memory_stats`, `memory_debug`, `memory_list`, `memory_promote`, `memory_archive`, `memory_compact`, and `memory_explain_rank`.
+- OpenClaw command aliases: `openclaw scope-recall` and compatibility alias `openclaw memory-pro`.
 - OpenClaw session hooks for auto-recall, auto-capture, session memory, memory reflection, and self-improvement reminders.
 
-Hermes-only V1 surfaces such as `scope_recall_context`, entity probe/related/feedback tools, `scope_recall_inspect`, `scope_recall_explain`, `scope_recall_benchmark`, nightly workflow digest, and Hermes-specific shared-durable/local-scratch scope semantics are not claimed as complete parity in this OpenClaw package. They are separate roadmap items if OpenClaw needs the same user-facing surface later.
+Hermes-only V1 surfaces such as `scope_recall_context`, entity probe/related/feedback tools, `scope_recall_inspect`, `scope_recall_explain`, `scope_recall_benchmark`, nightly workflow digest, and Hermes-specific shared-durable/local-scratch scope semantics remain separate roadmap items until they have OpenClaw-native UX, tests, and operator documentation.
 
 ## Storage Model
 
@@ -43,7 +43,7 @@ openclaw scope-recall repair-vectors
 
 Use `--limit <n>` for small test runs. When `--limit` is set, stale-vector pruning is disabled so partial repairs cannot delete unrelated vector rows.
 
-Hosted embedding providers remain the recommended production path. If `embedding.provider` is `local-hash`, or if no hosted API key is configured, the plugin can generate deterministic local vectors with `hash-v1`. This mode is meant for bootstrap, tests, and degraded offline availability; it is not a semantic-quality replacement for a real embedding model.
+Hosted embedding providers remain the recommended production path. If `embedding.provider` is `local-hash`, or if no hosted API key is configured, the plugin can generate deterministic local vectors with `hash-v1`. This keeps bootstrap, tests, and no-key availability working, but it is not a semantic-quality replacement for a real embedding model.
 
 ## Diagnostics
 

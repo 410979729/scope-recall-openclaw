@@ -26,7 +26,7 @@ OpenClaw integration surfaces:
 
 SQLite stores the authoritative memory rows, categories, metadata, FTS rows, and audit-friendly state. The vector companion stores rows derived from SQLite. LanceDB is the default production backend; `sqlite-bruteforce` stores vectors in a separate SQLite database and scans them locally for native-free compatibility. If the vector companion is stale, missing, or dimension-mismatched, operators should rebuild it from SQL truth rather than treat it as a second source of truth.
 
-Hosted embedding providers are recommended for semantic quality. `local-hash` exists for no-key bootstrap, testability, and degraded offline availability. It produces deterministic lexical hash vectors and is intentionally labeled as a fallback rather than a high-quality semantic model.
+Hosted embedding providers are recommended for semantic quality. `local-hash` exists for no-key bootstrap, testability, and offline availability. It produces deterministic lexical hash vectors and is intentionally documented as an availability fallback rather than a high-quality semantic model.
 
 The intended repair loop is:
 

@@ -6,12 +6,13 @@ claim that every Hermes surface should be copied into OpenClaw unchanged.
 
 ## Evidence Checked
 
-- OpenClaw public package checkout: `scope-recall-openclaw` at commit
-  `af15385399ab07e2e451cbcfe795a3330565ad21` before this hardening pass,
-  package version `1.0.9` after the fallback implementation.
+- OpenClaw public package checkout: `scope-recall-openclaw` after the
+  native-free vector and local embedding fallback implementation, package
+  version `1.0.10` after this description polish pass.
 - OpenClaw live extension directory:
-  `/home/a/openclaw-tianji/home/state/extensions/scope-recall-openclaw`, local
-  manifest/package version `1.1.0-beta.11`.
+  `/home/a/openclaw-tianji/home/state/extensions/scope-recall-openclaw`, brought
+  back onto the public release line after previously reporting a live-only beta
+  version.
 - Yuheng Hermes plugin:
   `/home/a/.hermes-yuheng/plugins/scope-recall`, plugin version `1.0.9`.
 - OpenClaw live doctor on 2026-06-09: SQL truth `404/404`, FTS `404/404`,
@@ -24,7 +25,7 @@ claim that every Hermes surface should be copied into OpenClaw unchanged.
 - Hybrid vector plus BM25 retrieval.
 - Dynamic OpenClaw memory tools:
   `memory_recall`, `memory_store`, `memory_forget`, and `memory_update`.
-- Optional management tools:
+- Optional operator and inspection tools:
   `memory_stats`, `memory_debug`, `memory_list`, `memory_promote`,
   `memory_archive`, `memory_compact`, and `memory_explain_rank`.
 - OpenClaw session hooks for auto recall, auto capture, memory reflection,
@@ -32,15 +33,16 @@ claim that every Hermes surface should be copied into OpenClaw unchanged.
 - Release package hygiene: docs, security policy, contribution guide, package
   quality tests, `npm test`, `release:gate`, and npm pack inspection.
 
-## High-Priority Gaps Before Calling It Boutique
+## High-Priority Gaps Before Release-Quality Parity
 
 ### P0 - Source And Release Alignment
 
-The public package tree has moved to `1.0.9`, while the live extension
-directory still reports `1.1.0-beta.11`. Treat those as separate targets until
-the live extension is redeployed from the public release line.
+This gap was closed before the 1.0.10 polish pass: the public package tree,
+ClawHub artifact, and live extension are expected to stay on the same release
+line. Any live-only experiment must use a clearly marked prerelease version and
+must not be cited as public package evidence.
 
-Boutique release rule:
+Release-quality rule:
 
 - public release tree, ClawHub artifact, live extension, and docs must identify
   the same intended version line;
@@ -68,13 +70,13 @@ Acceptance criteria:
 ### P1 - Offline Embedding Fallback
 
 Hermes has a deterministic `local-hash` fallback embedder for no-key bootstrap
-and degraded offline use. OpenClaw now supports `local-hash` / `local-debug`
+and offline availability. OpenClaw now supports `local-hash` / `local-debug`
 and no longer makes `embedding.apiKey` universally required.
 
 Acceptance criteria:
 
-- support an explicit low-quality fallback embedder for bootstrap and tests;
-- clearly label it as degraded availability, not semantic quality;
+- support a deterministic local fallback embedder for bootstrap and tests;
+- clearly label it as an availability fallback, not a semantic-quality mode;
 - keep hosted embedding as the recommended production path;
 - expose fallback status in stats/doctor output.
 

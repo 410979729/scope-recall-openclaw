@@ -1,8 +1,8 @@
 {
   "id": "scope-recall-openclaw",
-  "name": "Scope Recall OpenClaw",
-  "description": "OpenClaw scope recall memory layer with SQL truth, FTS, rebuildable vectors, multi-scope isolation, and management CLI",
-  "version": "1.0.9",
+  "name": "Scope Recall for OpenClaw",
+  "description": "Scoped long-term memory for OpenClaw with SQLite truth, hybrid recall, rebuildable vectors, safe capture, and native-free fallbacks",
+  "version": "1.0.10",
   "kind": "memory",
   "contracts": {
     "tools": [
@@ -54,7 +54,7 @@
                 "minItems": 1
               }
             ],
-            "description": "Single API key or array of keys for hosted embedding providers. Optional when using local-hash/local-debug."
+            "description": "Single API key or array of keys for hosted embedding providers. Leave unset only for local-hash/local-debug."
           },
           "model": {
             "type": "string"
@@ -103,12 +103,12 @@
           "sqlite-bruteforce"
         ],
         "default": "lancedb",
-        "description": "Vector companion backend. lancedb is recommended for production semantic search; sqlite-bruteforce is native-free and rebuildable for compatibility fallback."
+        "description": "Vector companion backend. Use lancedb for production semantic search; use sqlite-bruteforce when native dependencies are unsafe."
       },
       "enableManagementTools": {
         "type": "boolean",
         "default": false,
-        "description": "Enable management/debug tools such as memory_list, memory_stats, and governance-oriented self-improvement review/extract actions"
+        "description": "Expose operator tools such as memory_list, memory_stats, memory_compact, and self-improvement review/extract actions."
       },
       "sessionStrategy": {
         "type": "string",
@@ -118,7 +118,7 @@
           "none"
         ],
         "default": "none",
-        "description": "Choose session pipeline: plugin memory-reflection, built-in session-memory, or none. Default none keeps session summaries disabled unless explicitly enabled."
+        "description": "Choose the session pipeline: plugin memory reflection, built-in session memory, or none. The default is none."
       },
       "autoCapture": {
         "type": "boolean",
@@ -181,7 +181,7 @@
         "type": "string",
         "enum": ["full", "summary", "adaptive", "off"],
         "default": "full",
-        "description": "Auto-recall depth mode. 'full': inject with configured per-item budget. 'summary': L0 abstracts only (compact). 'adaptive': analyze query intent to auto-select category and depth. 'off': disable auto-recall injection."
+        "description": "Auto-recall depth. full uses the configured item budget; summary injects compact L0 abstracts; adaptive routes by intent; off disables injection."
       },
       "captureAssistant": {
         "type": "boolean"
@@ -189,7 +189,7 @@
       "smartExtraction": {
         "type": "boolean",
         "default": true,
-        "description": "Enable LLM-powered memory extraction. Falls back to regex capture when false."
+        "description": "Use an LLM to extract structured memories. When disabled, capture falls back to conservative regex rules."
       },
       "extractMinMessages": {
         "type": "integer",
@@ -562,12 +562,12 @@
       "sessionMemory": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Deprecated legacy switch. Kept for compatibility and mapped to sessionStrategy.",
+        "description": "Legacy compatibility switch mapped to sessionStrategy.",
         "properties": {
           "enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Deprecated. true -> sessionStrategy=systemSessionMemory, false -> sessionStrategy=none. Disabled by default."
+            "description": "Legacy compatibility: true maps to systemSessionMemory, false maps to none. Disabled by default."
           },
           "messageCount": {
             "type": "integer",
@@ -740,7 +740,7 @@
           "enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Enable dual-write: store memories in both LanceDB and human-readable Markdown files"
+            "description": "Write a human-readable Markdown mirror alongside the canonical SQLite memory store."
           },
           "dir": {
             "type": "string",
@@ -875,14 +875,14 @@
     "embedding.provider": {
       "label": "Embedding Provider",
       "placeholder": "openai-compatible",
-      "help": "Use openai-compatible or azure-openai for production semantic embeddings. Use local-hash only as a degraded no-key fallback.",
+      "help": "Use openai-compatible or azure-openai for production semantic embeddings. Use local-hash only for bootstrap, tests, or no-key availability.",
       "advanced": true
     },
     "embedding.apiKey": {
       "label": "API Key(s)",
       "sensitive": true,
       "placeholder": "sk-proj-... or [\"key1\", \"key2\"] for rotation",
-      "help": "Single API key or array of keys for hosted providers with automatic failover on rate limits. Not required when embedding.provider is local-hash/local-debug."
+      "help": "Single API key or array of keys for hosted providers with automatic failover on rate limits. Leave unset only for local-hash/local-debug."
     },
     "embedding.model": {
       "label": "Embedding Model",
@@ -937,12 +937,12 @@
     "vectorBackend": {
       "label": "Vector Backend",
       "placeholder": "lancedb",
-      "help": "Choose lancedb for production semantic retrieval or sqlite-bruteforce for a native-free compatibility fallback.",
+      "help": "Choose lancedb for production semantic retrieval. Choose sqlite-bruteforce when native dependencies are unsafe or unavailable.",
       "advanced": true
     },
     "smartExtraction": {
       "label": "Smart Extraction",
-      "help": "Enable LLM-powered 6-category memory extraction. Falls back to regex capture when off."
+      "help": "Use an LLM to extract six memory categories. When off, capture falls back to conservative regex rules."
     },
     "llm.apiKey": {
       "label": "LLM API Key",
@@ -1033,11 +1033,11 @@
     },
     "autoCapture": {
       "label": "Auto-Capture",
-      "help": "Automatically capture important information from conversations (enabled by default)"
+      "help": "Capture durable, high-signal facts from conversations. Enabled by default."
     },
     "autoRecall": {
       "label": "Auto-Recall",
-      "help": "Automatically inject relevant memories into context"
+      "help": "Inject relevant memories into the model context before a turn."
     },
     "autoRecallMinLength": {
       "label": "Auto-Recall Min Length",
@@ -1071,7 +1071,7 @@
     },
     "recallMode": {
       "label": "Recall Mode",
-      "help": "Auto-recall depth: full (default), summary (L0 only), adaptive (intent-based category routing), off.",
+      "help": "Auto-recall depth: full, summary, adaptive, or off.",
       "advanced": false
     },
     "maxRecallPerTurn": {
@@ -1081,12 +1081,12 @@
     },
     "captureAssistant": {
       "label": "Capture Assistant Messages",
-      "help": "Also auto-capture assistant messages (default false to reduce memory pollution)",
+      "help": "Also auto-capture assistant messages. Default false to reduce memory pollution.",
       "advanced": true
     },
     "retrieval.mode": {
       "label": "Retrieval Mode",
-      "help": "Use hybrid search (vector + BM25) or vector-only for backward compatibility",
+      "help": "Use hybrid search (vector + BM25) or vector-only retrieval for compatibility.",
       "advanced": true
     },
     "retrieval.vectorWeight": {
@@ -1204,7 +1204,7 @@
       "advanced": true
     },
     "sessionMemory.enabled": {
-      "label": "Session Memory (Deprecated)",
+      "label": "Session Memory (Legacy)",
       "help": "Legacy compatibility: true maps to systemSessionMemory, false maps to none.",
       "advanced": true
     },
@@ -1215,7 +1215,7 @@
     },
     "sessionStrategy": {
       "label": "Session Strategy",
-      "help": "memoryReflection / systemSessionMemory / none",
+      "help": "Select the session pipeline. none leaves session summaries disabled.",
       "advanced": true
     },
     "selfImprovement.enabled": {
@@ -1238,8 +1238,8 @@
       "advanced": true
     },
     "memoryReflection.storeToLanceDB": {
-      "label": "Store Reflection To LanceDB",
-      "help": "Persist reflection event + item rows to LanceDB (effective only under memoryReflection strategy)",
+      "label": "Store Reflection Rows",
+      "help": "Persist reflection event and item rows to the memory store. Effective only under memoryReflection strategy.",
       "advanced": true
     },
     "memoryReflection.writeLegacyCombined": {
@@ -1249,7 +1249,7 @@
     },
     "memoryReflection.injectMode": {
       "label": "Reflection Inject Mode",
-      "help": "inheritance-only or inheritance+derived",
+      "help": "Inject inherited reflection slices only, or include derived slices as well.",
       "advanced": true
     },
     "memoryReflection.agentId": {
@@ -1304,12 +1304,12 @@
     },
     "enableManagementTools": {
       "label": "Management Tools",
-      "help": "Enable management/debug tools such as memory_list, memory_stats, and governance-oriented self-improvement review/extract actions.",
+      "help": "Expose operator tools such as memory_list, memory_stats, memory_compact, and self-improvement review/extract actions.",
       "advanced": true
     },
     "mdMirror.enabled": {
       "label": "Markdown Mirror",
-      "help": "Write a human-readable Markdown copy alongside LanceDB storage (dual-write mode)"
+      "help": "Write a human-readable Markdown mirror alongside the canonical SQLite memory store."
     },
     "mdMirror.dir": {
       "label": "Mirror Fallback Directory",
