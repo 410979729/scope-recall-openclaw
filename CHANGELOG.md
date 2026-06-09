@@ -5,6 +5,7 @@
 - Aligned OpenClaw port metadata with the Hermes `scope-recall` `1.0.8` release line.
 - Added release-quality project files: design notes, contribution guide, security policy, changelog, CI workflow template, and package quality tests.
 - Added package metadata checks for repository, homepage, and issue tracker URLs.
+- Added OpenClaw compatibility/build metadata required for ClawHub code-plugin publishing.
 - Expanded `npm run release:gate` so package docs, tests, and pack contents are verified before release.
 - Documented the OpenClaw-vs-Hermes parity boundary.
 

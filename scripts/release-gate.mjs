@@ -51,6 +51,11 @@ assert(
   pkg.homepage === "https://github.com/410979729/scope-recall-openclaw#readme",
   "package.json must expose the GitHub README homepage",
 );
+assert(pkg.openclaw?.compat?.pluginApi === ">=2026.6.2", "package.json must declare openclaw.compat.pluginApi");
+assert(pkg.openclaw?.compat?.minGatewayVersion === "2026.6.2", "package.json must declare openclaw.compat.minGatewayVersion");
+assert(pkg.openclaw?.build?.openclawVersion === "2026.6.2", "package.json must declare openclaw.build.openclawVersion");
+assert(pkg.openclaw?.build?.pluginSdkVersion === "2026.6.2", "package.json must declare openclaw.build.pluginSdkVersion");
+assert(pkg.openclaw?.release?.publishToClawHub === true, "package.json must opt into ClawHub publishing metadata");
 for (const requiredDoc of ["DESIGN.md", "CHANGELOG.md", "SECURITY.md", "CONTRIBUTING.md"]) {
   await readFile(path.join(root, requiredDoc), "utf8");
 }

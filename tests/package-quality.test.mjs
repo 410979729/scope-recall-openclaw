@@ -16,6 +16,11 @@ test("package metadata points at the public repository", async () => {
   assert.equal(pkg.repository.url, "git+https://github.com/410979729/scope-recall-openclaw.git");
   assert.equal(pkg.bugs.url, "https://github.com/410979729/scope-recall-openclaw/issues");
   assert.equal(pkg.homepage, "https://github.com/410979729/scope-recall-openclaw#readme");
+  assert.equal(pkg.openclaw.compat.pluginApi, ">=2026.6.2");
+  assert.equal(pkg.openclaw.compat.minGatewayVersion, "2026.6.2");
+  assert.equal(pkg.openclaw.build.openclawVersion, "2026.6.2");
+  assert.equal(pkg.openclaw.build.pluginSdkVersion, "2026.6.2");
+  assert.equal(pkg.openclaw.release.publishToClawHub, true);
 });
 
 test("package allowlist includes release-quality docs and tests", async () => {
