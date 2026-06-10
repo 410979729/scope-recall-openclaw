@@ -2,7 +2,7 @@
   "id": "scope-recall-openclaw",
   "name": "Scope Recall for OpenClaw",
   "description": "Scoped long-term memory for OpenClaw with SQLite truth, hybrid recall, rebuildable vectors, safe capture, and native-free fallbacks",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "kind": "memory",
   "contracts": {
     "tools": [
@@ -124,7 +124,13 @@
       },
       "autoCapture": {
         "type": "boolean",
-        "default": true
+        "default": false,
+        "description": "Opt in to automatic capture of durable, high-signal conversation facts. Default is off."
+      },
+      "autoBackup": {
+        "type": "boolean",
+        "default": false,
+        "description": "Opt in to daily plaintext JSONL backups of stored memories. Default is off."
       },
       "autoRecall": {
         "type": "boolean",
@@ -190,8 +196,8 @@
       },
       "smartExtraction": {
         "type": "boolean",
-        "default": true,
-        "description": "Use an LLM to extract structured memories. When disabled, capture falls back to conservative regex rules."
+        "default": false,
+        "description": "Opt in to LLM-based memory extraction. When disabled, capture falls back to conservative regex rules."
       },
       "extractMinMessages": {
         "type": "integer",
@@ -944,12 +950,12 @@
     },
     "smartExtraction": {
       "label": "Smart Extraction",
-      "help": "Use an LLM to extract six memory categories. When off, capture falls back to conservative regex rules."
+      "help": "Opt in to LLM extraction of six memory categories. This can send conversation text to the configured LLM provider."
     },
     "llm.apiKey": {
       "label": "LLM API Key",
       "sensitive": true,
-      "placeholder": "sk-... or ${GROQ_API_KEY}",
+      "placeholder": "sk-...",
       "help": "API key for LLM used by smart memory extraction (defaults to embedding.apiKey if omitted)"
     },
     "llm.model": {
@@ -1035,7 +1041,12 @@
     },
     "autoCapture": {
       "label": "Auto-Capture",
-      "help": "Capture durable, high-signal facts from conversations. Enabled by default."
+      "help": "Opt in to capturing durable, high-signal facts from conversations. Default: off."
+    },
+    "autoBackup": {
+      "label": "Plaintext Backups",
+      "help": "Opt in to daily JSONL exports of stored memories. These backups are plaintext; keep disabled for sensitive deployments.",
+      "advanced": true
     },
     "autoRecall": {
       "label": "Auto-Recall",

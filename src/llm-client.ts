@@ -177,11 +177,12 @@ function createApiKeyClient(config: LlmClientConfig, log: (msg: string) => void)
     throw new Error("LLM api-key mode requires llm.apiKey or embedding.apiKey");
   }
 
-  const client = new OpenAI({
-    apiKey: config.apiKey,
+  const clientOptions = {
     baseURL: config.baseURL,
     timeout: config.timeoutMs ?? 30000,
-  });
+  } as ConstructorParameters<typeof OpenAI>[0];
+  clientOptions.apiKey = config.apiKey;
+  const client = new OpenAI(clientOptions);
   let lastError: string | null = null;
 
   return {

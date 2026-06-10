@@ -77,6 +77,9 @@ assert(!/inputSchema:\s*\{/.test(sourceIndex), "runtime tools must expose parame
 
 const schemaProps = manifest.configSchema?.properties ?? {};
 const uiHints = manifest.uiHints ?? {};
+assert(schemaProps.autoCapture?.default === false, "autoCapture must default off for privacy-first installs");
+assert(schemaProps.autoBackup?.default === false, "autoBackup must default off for privacy-first installs");
+assert(schemaProps.smartExtraction?.default === false, "smartExtraction must default off for privacy-first installs");
 assert(schemaProps.autoRecallTimeoutMs, "configSchema is missing autoRecallTimeoutMs");
 assert(schemaProps.recallMode, "configSchema is missing recallMode");
 assert(schemaProps.vectorBackend, "configSchema is missing vectorBackend");
@@ -226,11 +229,12 @@ for (const requiredPackFile of [
   "docs/github-actions-ci-template.yml",
   "docs/hermes-parity-audit-2026-06-09.md",
   "docs/parity-roadmap.md",
+  "scripts/smoke-vector-repair.mjs",
   "src/sqlite-vector-store.ts",
-  "tests/fallbacks.test.mjs",
-  "tests/package-quality.test.mjs",
 ]) {
   assert(files.includes(requiredPackFile), `npm pack is missing ${requiredPackFile}`);
 }
+assert(!files.includes("scripts/release-gate.mjs"), "npm pack should not include release-gate internals");
+assert(!files.some((file) => file.startsWith("tests/")), "npm pack should not include test fixtures");
 
 console.log("release:gate ok");

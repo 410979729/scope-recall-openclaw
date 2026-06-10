@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.12
+
+- Changed public defaults to require explicit opt-in for auto-capture, LLM smart extraction, and plaintext JSONL backups.
+- Made missing agent identity fail closed for scope filtering instead of broadening memory access.
+- Added confirmation friction to `memory_forget` and removed automatic high-confidence query deletion.
+- Stopped OAuth LLM backup files from copying API-key fields.
+- Made legacy upgrades metadata-only and local-heuristic by default; LLM enrichment, text rewrites, and non-dry-run writes now require explicit flags.
+- Removed release-gate/test internals from the published npm pack artifact while keeping source tests in the GitHub repository.
+
 ## 1.0.11
 
 - Added read-only `memory_context` and `memory_inspect` management tools for OpenClaw-native memory observability.

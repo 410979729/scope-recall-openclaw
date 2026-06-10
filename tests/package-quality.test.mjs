@@ -34,7 +34,7 @@ test("package metadata points at the public repository", async () => {
   assert.equal(pkg.openclaw.release.publishToClawHub, true);
 });
 
-test("package allowlist includes release-quality docs and tests", async () => {
+test("package allowlist includes release-quality docs and runtime sources", async () => {
   const pkg = await readJson("package.json");
   for (const expected of [
     "CHANGELOG.md",
@@ -42,7 +42,8 @@ test("package allowlist includes release-quality docs and tests", async () => {
     "DESIGN.md",
     "SECURITY.md",
     "docs/",
-    "tests/",
+    "scripts/smoke-vector-repair.mjs",
+    "src/",
   ]) {
     assert.ok(pkg.files.includes(expected), `package.json files is missing ${expected}`);
   }
@@ -68,6 +69,9 @@ test("manifest exposes the expected OpenClaw memory tools", async () => {
   assert.doesNotMatch(indexSource, /api\.registerTool\(\{\s*name:\s*"memory_compact"/);
   assert.doesNotMatch(indexSource, /inputSchema:\s*\{/);
   assert.equal(manifest.configSchema?.additionalProperties, false);
+  assert.equal(manifest.configSchema?.properties?.autoCapture?.default, false);
+  assert.equal(manifest.configSchema?.properties?.autoBackup?.default, false);
+  assert.equal(manifest.configSchema?.properties?.smartExtraction?.default, false);
   assert.ok(manifest.configSchema?.properties?.vectorBackend, "manifest configSchema is missing vectorBackend");
   assert.ok(
     manifest.configSchema?.properties?.embedding?.properties?.provider?.enum?.includes("local-hash"),

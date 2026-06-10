@@ -110,7 +110,6 @@ function resolveConfiguredOauthPath(configPath: string, rawPath: unknown): strin
 
 type RestorableApiKeyLlmConfig = {
   auth?: "api-key";
-  apiKey?: string;
   model?: string;
   baseURL?: string;
   timeoutMs?: number;
@@ -138,9 +137,6 @@ function extractRestorableApiKeyLlmConfig(value: unknown): RestorableApiKeyLlmCo
   const result: RestorableApiKeyLlmConfig = {};
   if (value.auth === "api-key") {
     result.auth = "api-key";
-  }
-  if (typeof value.apiKey === "string") {
-    result.apiKey = value.apiKey;
   }
   if (typeof value.model === "string") {
     result.model = value.model;
@@ -391,6 +387,13 @@ function ensurePluginConfigRoot(config: Record<string, any>, pluginId: string): 
   return entry.config as Record<string, any>;
 }
 
+function getExistingPluginConfigRoot(config: Record<string, any>, pluginId: string): Record<string, unknown> {
+  const plugins = isPlainObject(config.plugins) ? config.plugins : {};
+  const entries = isPlainObject(plugins.entries) ? plugins.entries : {};
+  const entry = isPlainObject(entries[pluginId]) ? entries[pluginId] : {};
+  return isPlainObject(entry.config) ? entry.config : {};
+}
+
 async function saveOpenClawConfig(configPath: string, config: Record<string, any>): Promise<void> {
   await mkdir(path.dirname(configPath), { recursive: true });
   await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
@@ -484,13 +487,13 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
 
   auth
     .command("login")
-    .description("Authenticate with ChatGPT/Codex in a browser, save the plugin OAuth file, and switch this plugin to llm.auth=oauth")
+    .description("Authenticate with ChatGPT/Codex from a printed authorization URL, save the plugin OAuth file, and switch this plugin to llm.auth=oauth")
     .option("--config <path>", "OpenClaw config file to update")
     .option("--provider <provider>", `OAuth provider to use (${OAUTH_PROVIDER_CHOICES})`)
     .option("--model <model>", "Override the model saved into llm.model")
     .option("--oauth-path <path>", "OAuth file path (default: ~/.openclaw/.scope-recall-openclaw/oauth.json)")
     .option("--timeout <seconds>", "OAuth callback timeout in seconds", "120")
-    .option("--no-browser", "Do not auto-open the browser; print the authorization URL only")
+    .option("--no-browser", "Compatibility flag; the command prints the authorization URL and does not launch a browser")
     .action(async (options) => {
       try {
         const pluginId = context.pluginId || "scope-recall-openclaw";
@@ -547,7 +550,6 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
         }
 
         const nextLlm = wasOauthMode ? { ...existingLlm } : extractOauthSafeLlmConfig(existingLlm);
-        delete nextLlm.apiKey;
         if (!wasOauthMode) {
           delete nextLlm.baseURL;
         }
@@ -579,7 +581,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
         const pluginId = context.pluginId || "scope-recall-openclaw";
         const configPath = resolveOpenClawConfigPath(options.config);
         const openclawConfig = await loadOpenClawConfig(configPath);
-        const pluginConfig = ensurePluginConfigRoot(openclawConfig, pluginId);
+        const pluginConfig = getExistingPluginConfigRoot(openclawConfig, pluginId);
         const llm = typeof pluginConfig.llm === "object" && pluginConfig.llm ? pluginConfig.llm as Record<string, unknown> : {};
         const oauthProviderRaw = typeof llm.oauthProvider === "string" && llm.oauthProvider.trim()
           ? llm.oauthProvider.trim()
@@ -1344,7 +1346,9 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
     .description("Upgrade legacy memories to new 6-category L0/L1/L2 smart memory format")
     .option("--dry-run", "Show upgrade statistics without modifying data")
     .option("--batch-size <n>", "Number of memories per batch", "10")
-    .option("--no-llm", "Skip LLM calls; use simple text truncation for L0/L1")
+    .option("--use-llm", "Allow sending memory text to the configured LLM for enrichment")
+    .option("--rewrite-text", "Rewrite each memory's primary text to its L0 abstract")
+    .option("--yes", "Confirm non-dry-run upgrade changes")
     .option("--limit <n>", "Maximum number of memories to upgrade")
     .option("--scope <scope>", "Only upgrade memories in this scope")
     .action(async (options) => {
@@ -1380,11 +1384,17 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
           return;
         }
 
+        if (!options.yes) {
+          console.log(`\nRefusing to modify memories without --yes. Re-run with --dry-run first, then add --yes when ready.`);
+          return;
+        }
+
         console.log(`\nStarting upgrade...`);
         const result = await upgrader.upgrade({
           dryRun: false,
           batchSize: parseInt(options.batchSize) || 10,
-          noLlm: options.llm === false,
+          noLlm: options.useLlm !== true,
+          rewriteText: options.rewriteText === true,
           limit: options.limit ? parseInt(options.limit) : undefined,
           scopeFilter,
         });

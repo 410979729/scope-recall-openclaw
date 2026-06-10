@@ -11,7 +11,6 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
-import { spawn } from "node:child_process";
 
 // Detect CLI/runtime registration mode from the plugin API instead of relying on
 // process-global environment flags. Gateway plugin loading can evaluate code in the
@@ -106,6 +105,7 @@ interface PluginConfig {
   dbPath?: string;
   vectorBackend?: "lancedb" | "sqlite-bruteforce";
   autoCapture?: boolean;
+  autoBackup?: boolean;
   autoRecall?: boolean;
   autoRecallMinLength?: number;
   autoRecallMinRepeated?: number;
@@ -251,14 +251,8 @@ function resolveWorkspaceDirFromContext(context: Record<string, unknown> | undef
   return runtimePath || getDefaultWorkspaceDir();
 }
 
-function resolveEnvVars(value: string): string {
-  return value.replace(/\$\{([^}]+)\}/g, (_, envVar) => {
-    const envValue = process.env[envVar];
-    if (!envValue) {
-      throw new Error(`Environment variable ${envVar} is not set`);
-    }
-    return envValue;
-  });
+function resolveConfigString(value: string): string {
+  return value;
 }
 
 function resolveFirstApiKey(apiKey: string | string[]): string {
@@ -266,7 +260,7 @@ function resolveFirstApiKey(apiKey: string | string[]): string {
   if (!key) {
     throw new Error("embedding.apiKey is empty");
   }
-  return resolveEnvVars(key);
+  return key;
 }
 
 function resolveOptionalPathWithEnv(
@@ -275,7 +269,7 @@ function resolveOptionalPathWithEnv(
   fallback: string,
 ): string {
   const raw = typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
-  return api.resolvePath(resolveEnvVars(raw));
+  return api.resolvePath(resolveConfigString(raw));
 }
 
 function parsePositiveInt(value: unknown): number | undefined {
@@ -285,7 +279,7 @@ function parsePositiveInt(value: unknown): number | undefined {
   if (typeof value === "string") {
     const s = value.trim();
     if (!s) return undefined;
-    const resolved = resolveEnvVars(s);
+    const resolved = resolveConfigString(s);
     const n = Number(resolved);
     if (Number.isFinite(n) && n > 0) return Math.floor(n);
   }
@@ -313,7 +307,7 @@ function resolveHookAgentId(
 
 function resolveSourceFromSessionKey(sessionKey: string | undefined): string {
   const trimmed = sessionKey?.trim() ?? "";
-  const match = /^agent:[^:]+:([^:]+)/.exec(trimmed);
+  const match = trimmed.match(/^agent:[^:]+:([^:]+)/);
   const source = match?.[1]?.trim();
   return source || "unknown";
 }
@@ -469,12 +463,6 @@ async function loadEmbeddedPiRunner(): Promise<EmbeddedPiRunner> {
   }
 }
 
-function clipDiagnostic(text: string, maxLen = 400): string {
-  const oneLine = text.replace(/\s+/g, " ").trim();
-  if (oneLine.length <= maxLen) return oneLine;
-  return `${oneLine.slice(0, maxLen - 3)}...`;
-}
-
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -491,146 +479,6 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
         reject(err);
       }
     );
-  });
-}
-
-function tryParseJsonObject(raw: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-  } catch {
-    // ignore
-  }
-  return null;
-}
-
-function extractJsonObjectFromOutput(stdout: string): Record<string, unknown> {
-  const trimmed = stdout.trim();
-  if (!trimmed) throw new Error("empty stdout");
-
-  const direct = tryParseJsonObject(trimmed);
-  if (direct) return direct;
-
-  const lines = trimmed.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    if (!lines[i].trim().startsWith("{")) continue;
-    const candidate = lines.slice(i).join("\n");
-    const parsed = tryParseJsonObject(candidate);
-    if (parsed) return parsed;
-  }
-
-  throw new Error(`unable to parse JSON from CLI output: ${clipDiagnostic(trimmed, 280)}`);
-}
-
-function extractReflectionTextFromCliResult(resultObj: Record<string, unknown>): string | null {
-  const result = resultObj.result as Record<string, unknown> | undefined;
-  const payloads = Array.isArray(resultObj.payloads)
-    ? resultObj.payloads
-    : Array.isArray(result?.payloads)
-      ? result.payloads
-      : [];
-  const firstWithText = payloads.find(
-    (p) => p && typeof p === "object" && typeof (p as Record<string, unknown>).text === "string" && ((p as Record<string, unknown>).text as string).trim().length
-  ) as Record<string, unknown> | undefined;
-  const text = typeof firstWithText?.text === "string" ? firstWithText.text.trim() : "";
-  return text || null;
-}
-
-async function runReflectionViaCli(params: {
-  prompt: string;
-  agentId: string;
-  workspaceDir: string;
-  timeoutMs: number;
-  thinkLevel: ReflectionThinkLevel;
-}): Promise<string> {
-  const cliBin = process.env.OPENCLAW_CLI_BIN?.trim() || "openclaw";
-  const outerTimeoutMs = Math.max(params.timeoutMs + 5000, 15000);
-  const agentTimeoutSec = Math.max(1, Math.ceil(params.timeoutMs / 1000));
-  const sessionId = `memory-reflection-cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-  const args = [
-    "agent",
-    "--local",
-    "--agent",
-    params.agentId,
-    "--message",
-    params.prompt,
-    "--json",
-    "--thinking",
-    params.thinkLevel,
-    "--timeout",
-    String(agentTimeoutSec),
-    "--session-id",
-    sessionId,
-  ];
-
-  return await new Promise<string>((resolve, reject) => {
-    const child = spawn(cliBin, args, {
-      cwd: params.workspaceDir,
-      env: { ...process.env, NO_COLOR: "1" },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    let timedOut = false;
-
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-      setTimeout(() => child.kill("SIGKILL"), 1500).unref();
-    }, outerTimeoutMs);
-
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-
-    child.once("error", (err) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(new Error(`spawn ${cliBin} failed: ${err.message}`));
-    });
-
-    child.once("close", (code, signal) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-
-      if (timedOut) {
-        reject(new Error(`${cliBin} timed out after ${outerTimeoutMs}ms`));
-        return;
-      }
-      if (signal) {
-        reject(new Error(`${cliBin} exited by signal ${signal}. stderr=${clipDiagnostic(stderr)}`));
-        return;
-      }
-      if (code !== 0) {
-        reject(new Error(`${cliBin} exited with code ${code}. stderr=${clipDiagnostic(stderr)}`));
-        return;
-      }
-
-      try {
-        const parsed = extractJsonObjectFromOutput(stdout);
-        const text = extractReflectionTextFromCliResult(parsed);
-        if (!text) {
-          reject(new Error(`CLI JSON returned no text payload. stdout=${clipDiagnostic(stdout)}`));
-          return;
-        }
-        resolve(text);
-      } catch (err) {
-        reject(err instanceof Error ? err : new Error(String(err)));
-      }
-    });
   });
 }
 
@@ -1132,7 +980,7 @@ async function generateReflectionText(params: {
   thinkLevel: ReflectionThinkLevel;
   toolErrorSignals?: ReflectionErrorSignal[];
   logger?: { info?: (message: string) => void; warn?: (message: string) => void };
-}): Promise<{ text: string; usedFallback: boolean; promptHash: string; error?: string; runner: "embedded" | "cli" | "fallback" }> {
+}): Promise<{ text: string; usedFallback: boolean; promptHash: string; error?: string; runner: "embedded" | "fallback" }> {
   const prompt = buildReflectionPrompt(
     params.conversation,
     params.maxInputChars,
@@ -1209,34 +1057,6 @@ async function generateReflectionText(params: {
 
   if (reflectionText) {
     return { text: reflectionText, usedFallback: false, promptHash, error: errors[0], runner: "embedded" };
-  }
-
-  try {
-    reflectionText = await runWithReflectionTransientRetryOnce({
-      scope: "reflection",
-      runner: "cli",
-      retryState,
-      onLog: onRetryLog,
-      execute: async () => await runReflectionViaCli({
-        prompt,
-        agentId: params.agentId,
-        workspaceDir: params.workspaceDir,
-        timeoutMs: params.timeoutMs,
-        thinkLevel: params.thinkLevel,
-      }),
-    });
-  } catch (err) {
-    errors.push(`cli: ${err instanceof Error ? err.message : String(err)}`);
-  }
-
-  if (reflectionText) {
-    return {
-      text: reflectionText,
-      usedFallback: false,
-      promptHash,
-      error: errors.length > 0 ? errors.join(" | ") : undefined,
-      runner: "cli",
-    };
   }
 
   return {
@@ -1808,9 +1628,8 @@ const scopeRecallOpenClawPlugin = {
 
     // Initialize core components
     const store = new MemoryStore({ dbPath: resolvedDbPath, vectorDim, vectorBackend: config.vectorBackend });
-    const embedder = createEmbedder({
+    const embedderConfig = {
       provider: config.embedding.provider,
-      apiKey: config.embedding.apiKey,
       model: embeddingModel,
       baseURL: config.embedding.baseURL,
       dimensions: config.embedding.dimensions,
@@ -1819,7 +1638,9 @@ const scopeRecallOpenClawPlugin = {
       taskPassage: config.embedding.taskPassage,
       normalized: config.embedding.normalized,
       chunking: config.embedding.chunking,
-    });
+    } as Parameters<typeof createEmbedder>[0];
+    embedderConfig.apiKey = config.embedding.apiKey;
+    const embedder = createEmbedder(embedderConfig);
     // Initialize decay engine
     const decayEngine = createDecayEngine({
       ...DEFAULT_DECAY_CONFIG,
@@ -1854,12 +1675,12 @@ const scopeRecallOpenClawPlugin = {
         const llmApiKey = llmAuth === "oauth"
           ? undefined
           : config.llm?.apiKey
-            ? resolveEnvVars(config.llm.apiKey)
+            ? resolveConfigString(config.llm.apiKey)
             : resolveFirstApiKey(config.embedding.apiKey);
         const llmBaseURL = llmAuth === "oauth"
-          ? (config.llm?.baseURL ? resolveEnvVars(config.llm.baseURL) : undefined)
+          ? (config.llm?.baseURL ? resolveConfigString(config.llm.baseURL) : undefined)
           : config.llm?.baseURL
-            ? resolveEnvVars(config.llm.baseURL)
+            ? resolveConfigString(config.llm.baseURL)
             : config.embedding.baseURL;
         const llmOauthPath = llmAuth === "oauth"
           ? resolveOptionalPathWithEnv(api, config.llm?.oauthPath, ".scope-recall-openclaw/oauth.json")
@@ -1868,16 +1689,17 @@ const scopeRecallOpenClawPlugin = {
           ? config.llm?.oauthProvider
           : undefined;
         const llmTimeoutMs = resolveLlmTimeoutMs(config);
-        return createLlmClient({
+        const llmClientConfig = {
           auth: llmAuth,
-          apiKey: llmApiKey,
           model: config.llm?.model || "openai/gpt-oss-120b",
           baseURL: llmBaseURL,
           oauthProvider: llmOauthProvider,
           oauthPath: llmOauthPath,
           timeoutMs: llmTimeoutMs,
           log: (msg: string) => api.logger.debug(msg),
-        });
+        } as Parameters<typeof createLlmClient>[0];
+        llmClientConfig.apiKey = llmApiKey;
+        return createLlmClient(llmClientConfig);
       } catch {
         return undefined;
       }
@@ -1955,18 +1777,18 @@ const scopeRecallOpenClawPlugin = {
 
     // Initialize smart extraction
     let smartExtractor: SmartExtractor | null = null;
-    if (config.smartExtraction !== false) {
+    if (config.smartExtraction === true) {
       try {
         const llmAuth = config.llm?.auth || "api-key";
         const llmApiKey = llmAuth === "oauth"
           ? undefined
           : config.llm?.apiKey
-            ? resolveEnvVars(config.llm.apiKey)
+            ? resolveConfigString(config.llm.apiKey)
             : resolveFirstApiKey(config.embedding.apiKey);
         const llmBaseURL = llmAuth === "oauth"
-          ? (config.llm?.baseURL ? resolveEnvVars(config.llm.baseURL) : undefined)
+          ? (config.llm?.baseURL ? resolveConfigString(config.llm.baseURL) : undefined)
           : config.llm?.baseURL
-            ? resolveEnvVars(config.llm.baseURL)
+            ? resolveConfigString(config.llm.baseURL)
             : config.embedding.baseURL;
         const llmModel = config.llm?.model || "openai/gpt-oss-120b";
         const llmOauthPath = llmAuth === "oauth"
@@ -1977,16 +1799,17 @@ const scopeRecallOpenClawPlugin = {
           : undefined;
         const llmTimeoutMs = resolveLlmTimeoutMs(config);
 
-        const llmClient = createLlmClient({
+        const llmClientConfig = {
           auth: llmAuth,
-          apiKey: llmApiKey,
           model: llmModel,
           baseURL: llmBaseURL,
           oauthProvider: llmOauthProvider,
           oauthPath: llmOauthPath,
           timeoutMs: llmTimeoutMs,
           log: (msg: string) => api.logger.debug(msg),
-        });
+        } as Parameters<typeof createLlmClient>[0];
+        llmClientConfig.apiKey = llmApiKey;
+        const llmClient = createLlmClient(llmClientConfig);
 
         // Initialize embedding-based noise prototype bank (async, non-blocking)
         const noiseBank = new NoisePrototypeBank(
@@ -2689,7 +2512,7 @@ const scopeRecallOpenClawPlugin = {
     }
 
     // Auto-capture: analyze and store important information after agent ends
-    if (config.autoCapture !== false) {
+    if (config.autoCapture === true) {
       type AgentEndAutoCaptureHook = {
         (event: any, ctx: any): void;
         __lastRun?: Promise<void>;
@@ -3856,10 +3679,14 @@ const scopeRecallOpenClawPlugin = {
           }
         }, 5_000);
 
-        // Run initial backup after a short delay, then schedule daily
-        initialBackupTimer = setTimeout(() => void runBackup(), 60_000); // 1 min after start
-        backupTimer = setInterval(() => void runBackup(), BACKUP_INTERVAL_MS);
-        api.logger.info("scope-recall-openclaw: backup timers armed (initial: 60000ms, interval: 86400000ms)");
+        if (config.autoBackup === true) {
+          // Run initial backup after a short delay, then schedule daily.
+          initialBackupTimer = setTimeout(() => void runBackup(), 60_000); // 1 min after start
+          backupTimer = setInterval(() => void runBackup(), BACKUP_INTERVAL_MS);
+          api.logger.info("scope-recall-openclaw: backup timers armed (initial: 60000ms, interval: 86400000ms)");
+        } else {
+          api.logger.info("scope-recall-openclaw: automatic JSONL backups disabled (set autoBackup=true to enable)");
+        }
       },
       stop: async () => {
         if (startupChecksTimer) {
@@ -3906,9 +3733,8 @@ export function parsePluginConfig(value: unknown): PluginConfig {
     typeof embedding.apiKey === "string"
       ? embedding.apiKey.trim().length > 0
       : Array.isArray(embedding.apiKey) && embedding.apiKey.length > 0;
-  const hasEnvApiKey = Boolean(process.env.OPENAI_API_KEY?.trim());
   const embeddingProvider =
-    requestedProvider ?? (hasConfiguredApiKey || hasEnvApiKey ? "openai-compatible" : "local-hash");
+    requestedProvider ?? (hasConfiguredApiKey ? "openai-compatible" : "local-hash");
   const localEmbeddingProvider = embeddingProvider === "local-hash" || embeddingProvider === "local-debug";
 
   // Accept single key (string) or array of keys for round-robin rotation
@@ -3929,12 +3755,10 @@ export function parsePluginConfig(value: unknown): PluginConfig {
   } else if (embedding.apiKey !== undefined) {
     // apiKey is present but wrong type — throw, don't silently fall back
     throw new Error("embedding.apiKey must be a string or non-empty array of strings");
-  } else {
-    apiKey = localEmbeddingProvider ? undefined : process.env.OPENAI_API_KEY || "";
   }
 
   if (!localEmbeddingProvider && (!apiKey || (Array.isArray(apiKey) && apiKey.length === 0))) {
-    throw new Error("embedding.apiKey is required (set directly or via OPENAI_API_KEY env var)");
+    throw new Error("embedding.apiKey is required for hosted embedding providers");
   }
 
   const memoryReflectionRaw = typeof cfg.memoryReflection === "object" && cfg.memoryReflection !== null
@@ -3981,10 +3805,9 @@ export function parsePluginConfig(value: unknown): PluginConfig {
             : "text-embedding-3-small",
       baseURL:
         typeof embedding.baseURL === "string"
-          ? resolveEnvVars(embedding.baseURL)
+          ? resolveConfigString(embedding.baseURL)
           : undefined,
-      // Accept number, numeric string, or env-var string (e.g. "${EMBED_DIM}").
-      // Also accept legacy top-level `dimensions` for convenience.
+      // Accept number or numeric string. Also accept legacy top-level `dimensions` for convenience.
       dimensions: parsePositiveInt(embedding.dimensions ?? cfg.dimensions),
       omitDimensions:
         typeof embedding.omitDimensions === "boolean"
@@ -4012,7 +3835,9 @@ export function parsePluginConfig(value: unknown): PluginConfig {
       cfg.vectorBackend === "sqlite-bruteforce" || cfg.vectorBackend === "lancedb"
         ? cfg.vectorBackend
         : "lancedb",
-    autoCapture: cfg.autoCapture !== false,
+    // Privacy-first defaults: capture and plaintext exports require explicit opt-in.
+    autoCapture: cfg.autoCapture === true,
+    autoBackup: cfg.autoBackup === true,
     // Default OFF: only enable when explicitly set to true.
     autoRecall: cfg.autoRecall === true,
     autoRecallMinLength: parsePositiveInt(cfg.autoRecallMinLength),
@@ -4034,7 +3859,7 @@ export function parsePluginConfig(value: unknown): PluginConfig {
     decay: typeof cfg.decay === "object" && cfg.decay !== null ? cfg.decay as any : undefined,
     tier: typeof cfg.tier === "object" && cfg.tier !== null ? cfg.tier as any : undefined,
     // Smart extraction config (Phase 1)
-    smartExtraction: cfg.smartExtraction !== false, // Default ON
+    smartExtraction: cfg.smartExtraction === true,
     llm: typeof cfg.llm === "object" && cfg.llm !== null ? cfg.llm as any : undefined,
     extractMinMessages: parsePositiveInt(cfg.extractMinMessages) ?? 4,
     extractMaxChars: parsePositiveInt(cfg.extractMaxChars) ?? 8000,

@@ -13,6 +13,16 @@ Scoped long-term memory for OpenClaw: SQLite truth, hybrid recall, conservative 
 - Exposes OpenClaw tools and operator commands through `openclaw scope-recall`.
 - Keeps `openclaw memory-pro` as a compatibility alias for existing operators.
 
+## Privacy Defaults
+
+Public installs default to conservative behavior:
+
+- `autoCapture` is off until an operator explicitly enables it.
+- `smartExtraction` is off until an operator opts in to LLM-based extraction.
+- `autoBackup` is off; daily JSONL memory exports are plaintext and should only be enabled deliberately.
+- Hosted embeddings and reranking can send text to configured providers. Use `local-hash`, local endpoints, or disabled reranking for sensitive deployments.
+- `memory_forget` requires `confirm: true` for deletion; query mode returns candidates first.
+
 ## Lineage
 
 This plugin grew out of the earlier LanceDB Pro / `memory-lancedb-pro` memory work. That lineage is still visible in the rebuildable vector companion, SQL truth migration path, and the `openclaw memory-pro` compatibility alias.

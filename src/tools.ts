@@ -965,7 +965,7 @@ export function registerMemoryForgetTool(
         name: "memory_forget",
       label: "Memory Forget",
       description:
-        "Delete specific memories. Supports both search-based and direct ID-based deletion.",
+        "Preview and delete specific memories. Deletion requires confirm=true.",
       parameters: Type.Object({
         query: Type.Optional(
           Type.String({ description: "Search query to find memory to delete" }),
@@ -978,12 +978,18 @@ export function registerMemoryForgetTool(
             description: "Scope to search/delete from (optional)",
           }),
         ),
+        confirm: Type.Optional(
+          Type.Boolean({
+            description: "Required true to delete a memoryId. Query mode returns candidates for confirmation.",
+          }),
+        ),
       }),
       async execute(_toolCallId, params, _signal, _onUpdate, runtimeCtx) {
-        const { query, memoryId, scope } = params as {
+        const { query, memoryId, scope, confirm } = params as {
           query?: string;
           memoryId?: string;
           scope?: string;
+          confirm?: boolean;
         };
 
         try {
@@ -1007,6 +1013,20 @@ export function registerMemoryForgetTool(
           }
 
           if (memoryId) {
+            if (confirm !== true) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `Deletion requires confirm=true for memoryId ${memoryId}.`,
+                  },
+                ],
+                details: {
+                  action: "confirmation_required",
+                  id: memoryId,
+                },
+              };
+            }
             const deleted = await context.store.delete(memoryId, scopeFilter);
             if (deleted) {
               return {
@@ -1042,24 +1062,6 @@ export function registerMemoryForgetTool(
                 ],
                 details: { found: 0, query },
               };
-            }
-
-            if (results.length === 1 && results[0].score > 0.9) {
-              const deleted = await context.store.delete(
-                results[0].entry.id,
-                scopeFilter,
-              );
-              if (deleted) {
-                return {
-                  content: [
-                    {
-                      type: "text",
-                      text: `Forgotten: "${results[0].entry.text}"`,
-                    },
-                  ],
-                  details: { action: "deleted", id: results[0].entry.id },
-                };
-              }
             }
 
             const list = results

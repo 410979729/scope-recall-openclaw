@@ -174,6 +174,7 @@ export class SqliteBruteForceVectorStore {
       } catch {
         continue;
       }
+      if (entry.vector.length !== queryVector.length) continue;
       const distance = cosineDistance(queryVector, entry.vector);
       const score = 1 / (1 + distance);
       if (score < minScore) continue;
@@ -233,11 +234,6 @@ export class SqliteBruteForceVectorStore {
 
   private resetOnDimensionChange(): void {
     const db = this.requireDb();
-    const row = db.prepare("SELECT value FROM vector_meta WHERE key = 'dimensions'").get() as { value?: string } | undefined;
-    const previousDim = row?.value ? Number(row.value) : 0;
-    if (previousDim && previousDim !== this.vectorDim) {
-      db.prepare("DELETE FROM vector_records").run();
-    }
     db.prepare(
       "INSERT INTO vector_meta(key, value) VALUES('dimensions', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     ).run(String(this.vectorDim));

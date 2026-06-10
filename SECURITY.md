@@ -14,6 +14,8 @@ Do not paste API keys, bearer tokens, OpenClaw gateway tokens, database password
 
 `scope-recall-openclaw` must not persist credential-like content as memory. Capture safety blocks common token, bearer, password, and credentialed URL patterns before storage. If you find a secret pattern that is not blocked, treat it as a security bug.
 
+Public defaults keep automatic capture, LLM extraction, and plaintext JSONL backups disabled. Enabling hosted extraction, embeddings, reranking, OAuth, reflection storage, rejected-candidate audits, or backups can persist or transmit conversation-derived data; do that only with an explicit operator decision.
+
 Release packages must not contain:
 
 - `.env` files

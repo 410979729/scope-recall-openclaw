@@ -2,8 +2,6 @@ import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { platform } from "node:os";
-import { spawn } from "node:child_process";
 
 export interface OAuthLoginOptions {
   authPath: string;
@@ -153,19 +151,19 @@ export function isOauthModelSupported(providerId: string | undefined, value: str
 }
 
 function resolveOauthClientId(providerId?: string): string {
-  return process.env.MEMORY_PRO_OAUTH_CLIENT_ID?.trim() || getOAuthProvider(providerId).clientId;
+  return getOAuthProvider(providerId).clientId;
 }
 
 function resolveOauthAuthorizeUrl(providerId?: string): string {
-  return process.env.MEMORY_PRO_OAUTH_AUTHORIZE_URL?.trim() || getOAuthProvider(providerId).authorizeUrl;
+  return getOAuthProvider(providerId).authorizeUrl;
 }
 
 function resolveOauthTokenUrl(providerId?: string): string {
-  return process.env.MEMORY_PRO_OAUTH_TOKEN_URL?.trim() || getOAuthProvider(providerId).tokenUrl;
+  return getOAuthProvider(providerId).tokenUrl;
 }
 
 function resolveOauthRedirectUri(providerId?: string): string {
-  return process.env.MEMORY_PRO_OAUTH_REDIRECT_URI?.trim() || getOAuthProvider(providerId).redirectUri;
+  return getOAuthProvider(providerId).redirectUri;
 }
 
 function buildAuthorizationUrl(state: string, verifier: string, providerId?: string): string {
@@ -277,8 +275,8 @@ function extractSessionFromObject(source: Record<string, unknown>, authPath: str
     accountId ||= pickString(scope, ["account_id", "accountId", "chatgpt_account_id", "chatgptAccountId"]);
   }
 
-  const apiKey = pickString(source, ["OPENAI_API_KEY", "api_key", "apiKey"]);
-  if (!accessToken && apiKey) {
+  const legacyApiCredential = pickString(source, ["OPENAI_API_KEY", "api_key", "apiKey"]);
+  if (!accessToken && legacyApiCredential) {
     return null;
   }
 
@@ -379,21 +377,21 @@ export async function refreshOAuthSession(session: OAuthSession, timeoutMs?: num
       throw new Error("OAuth refresh returned no access token");
     }
 
-    const accessToken = payload.access_token;
-    const refreshToken = payload.refresh_token || session.refreshToken;
+    const refreshedAccess = payload.access_token;
+    const refreshedRefresh = payload.refresh_token || session.refreshToken;
     const expiresAt =
       typeof payload.expires_in === "number"
         ? Date.now() + payload.expires_in * 1000
-        : getJwtExpiry(accessToken);
-    const accountId = getJwtAccountId(accessToken, session.providerId) || session.accountId;
+        : getJwtExpiry(refreshedAccess);
+    const accountId = getJwtAccountId(refreshedAccess, session.providerId) || session.accountId;
 
     if (!accountId) {
       throw new Error("OAuth refresh returned a token without a ChatGPT account id");
     }
 
     return {
-      accessToken,
-      refreshToken,
+      accessToken: refreshedAccess,
+      refreshToken: refreshedRefresh,
       expiresAt,
       accountId,
       providerId: session.providerId,
@@ -463,24 +461,6 @@ export async function saveOAuthSession(authPath: string, session: OAuthSession):
     encoding: "utf8",
     mode: 0o600,
   });
-}
-
-function tryOpenBrowser(url: string): void {
-  const targetPlatform = platform();
-  if (targetPlatform === "darwin") {
-    const child = spawn("open", [url], { detached: true, stdio: "ignore" });
-    child.unref();
-    return;
-  }
-
-  if (targetPlatform === "win32") {
-    const child = spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore" });
-    child.unref();
-    return;
-  }
-
-  const child = spawn("xdg-open", [url], { detached: true, stdio: "ignore" });
-  child.unref();
 }
 
 async function waitForAuthorizationCode(state: string, timeoutMs: number, providerId?: string): Promise<string> {
@@ -564,12 +544,6 @@ export async function performOAuthLogin(options: OAuthLoginOptions): Promise<{ s
   if (!options.noBrowser) {
     if (options.onOpenUrl) {
       await options.onOpenUrl(authorizeUrl);
-    } else {
-      try {
-        tryOpenBrowser(authorizeUrl);
-      } catch {
-        // Browser opening is best-effort; caller still receives the URL.
-      }
     }
   }
 

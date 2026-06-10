@@ -10,7 +10,7 @@
  *   1. Detect legacy format (missing `memory_category` in metadata)
  *   2. Reverse-map 5-category → 6-category
  *   3. Generate L0/L1/L2 via LLM (or fallback to simple rules)
- *   4. Write enriched metadata back via store.update()
+ *   4. Write enriched metadata back via store.update() without rewriting the primary text
  */
 
 import type { MemoryStore, MemoryEntry } from "./store.js";
@@ -28,8 +28,10 @@ export interface UpgradeOptions {
   dryRun?: boolean;
   /** Number of memories to process per batch (default: 10) */
   batchSize?: number;
-  /** Skip LLM calls; use simple text truncation for L0/L1 (default: false) */
+  /** Skip LLM calls; use simple text truncation for L0/L1 (default: true) */
   noLlm?: boolean;
+  /** Rewrite primary text to the L0 abstract. Destructive and disabled by default. */
+  rewriteText?: boolean;
   /** Maximum number of memories to upgrade (default: unlimited) */
   limit?: number;
   /** Scope filter — only upgrade memories in these scopes */
@@ -211,7 +213,8 @@ export class MemoryUpgrader {
    */
   async upgrade(options: UpgradeOptions = {}): Promise<UpgradeResult> {
     const batchSize = options.batchSize ?? this.options.batchSize ?? 10;
-    const noLlm = options.noLlm ?? this.options.noLlm ?? false;
+    const noLlm = options.noLlm ?? this.options.noLlm ?? true;
+    const rewriteText = options.rewriteText ?? this.options.rewriteText ?? false;
     const dryRun = options.dryRun ?? this.options.dryRun ?? false;
     const limit = options.limit ?? this.options.limit;
 
@@ -270,7 +273,7 @@ export class MemoryUpgrader {
 
       for (const entry of batch) {
         try {
-          await this.upgradeEntry(entry, noLlm);
+          await this.upgradeEntry(entry, noLlm, rewriteText);
           result.upgraded++;
         } catch (err) {
           const errMsg = `Failed to upgrade ${entry.id}: ${String(err)}`;
@@ -297,6 +300,7 @@ export class MemoryUpgrader {
   private async upgradeEntry(
     entry: MemoryEntry,
     noLlm: boolean,
+    rewriteText: boolean,
   ): Promise<void> {
     // Step 1: Reverse-map category
     let newCategory = reverseMapCategory(entry.category, entry.text);
@@ -368,8 +372,7 @@ export class MemoryUpgrader {
 
     // Step 4: Update the memory entry
     await this.store.update(entry.id, {
-      // Update text to L0 abstract for better search indexing
-      text: enriched.l0_abstract,
+      ...(rewriteText ? { text: enriched.l0_abstract } : {}),
       metadata: stringifySmartMetadata(newMetadata),
     });
   }

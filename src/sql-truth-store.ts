@@ -322,7 +322,7 @@ export class SqlTruthStore {
     const db = this.requireDb();
     let upserted = 0;
     let deleted = 0;
-    const deleteMissing = options.deleteMissing ?? true;
+    const deleteMissing = options.deleteMissing === true;
     db.exec("BEGIN IMMEDIATE");
     try {
       const wanted = new Set(entries.map((entry) => entry.id).filter(Boolean));

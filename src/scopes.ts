@@ -23,7 +23,7 @@ export interface ScopeManager {
    * Enumerate known scopes for the caller.
    *
    * Note: this is an enumeration API, not a full description of every syntactically-valid built-in
-   * pattern accepted by `validateScope()` / `isAccessible()`. In particular, bypass callers may still
+   * pattern accepted by `validateScope()` / `isAccessible()`. Reserved bypass callers may still
    * validate built-in scope patterns that are not explicitly registered in `definitions`.
    */
   getAccessibleScopes(agentId?: string): string[];
@@ -186,7 +186,10 @@ export class MemoryScopeManager implements ScopeManager {
   }
 
   getAccessibleScopes(agentId?: string): string[] {
-    if (isSystemBypassId(agentId) || !agentId) {
+    if (!agentId) {
+      return [];
+    }
+    if (isSystemBypassId(agentId)) {
       // Keep enumeration semantics consistent for callers that inspect the list.
       // This enumerates registered scopes, not every valid built-in pattern.
       return this.getAllScopes();
@@ -220,10 +223,11 @@ export class MemoryScopeManager implements ScopeManager {
    * and `[]` only when they intend reads to match nothing.
    */
   getScopeFilter(agentId?: string): string[] | undefined {
-    if (!agentId || isSystemBypassId(agentId)) {
-      // No agent specified or internal system tasks bypass store-level scope
-      // filtering entirely.  This aligns with isAccessible(scope, undefined)
-      // which also uses bypass semantics for missing agentId.
+    if (!agentId) {
+      return [];
+    }
+    if (isSystemBypassId(agentId)) {
+      // Internal system tasks bypass store-level scope filtering entirely.
       return undefined;
     }
     return this.getAccessibleScopes(agentId);
@@ -251,8 +255,11 @@ export class MemoryScopeManager implements ScopeManager {
   }
 
   isAccessible(scope: string, agentId?: string): boolean {
-    if (!agentId || isSystemBypassId(agentId)) {
-      // No agent specified, or internal bypass identifier: allow any valid scope.
+    if (!agentId) {
+      return false;
+    }
+    if (isSystemBypassId(agentId)) {
+      // Internal bypass identifier: allow any valid scope.
       return this.validateScope(scope);
     }
 
@@ -531,9 +538,10 @@ export function resolveScopeFilter(
 }
 
 export function filterScopesForAgent(scopes: string[], agentId?: string, scopeManager?: ScopeManager): string[] {
-  if (!scopeManager || !agentId) {
+  if (!scopeManager) {
     return scopes;
   }
+  if (!agentId) return [];
 
   return scopes.filter(scope => scopeManager.isAccessible(scope, agentId));
 }

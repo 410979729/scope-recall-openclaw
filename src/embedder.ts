@@ -165,16 +165,6 @@ const EMBEDDING_DIMENSIONS: Record<string, number> = {
 // Utility Functions
 // ============================================================================
 
-function resolveEnvVars(value: string): string {
-  return value.replace(/\$\{([^}]+)\}/g, (_, envVar) => {
-    const envValue = process.env[envVar];
-    if (!envValue) {
-      throw new Error(`Environment variable ${envVar} is not set`);
-    }
-    return envValue;
-  });
-}
-
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -525,12 +515,15 @@ export class Embedder {
   private readonly _autoChunk: boolean;
 
   constructor(config: EmbeddingConfig & { chunking?: boolean }) {
-    // Normalize apiKey to array and resolve environment variables
+    // Normalize apiKey to an explicit array. SecretRef/env expansion is left to OpenClaw config handling.
     if (!config.apiKey) {
       throw new Error("embedding.apiKey is required for hosted embedding providers");
     }
     const apiKeys = Array.isArray(config.apiKey) ? config.apiKey : [config.apiKey];
-    const resolvedKeys = apiKeys.map(k => resolveEnvVars(k));
+    const resolvedKeys = apiKeys.map(k => k.trim()).filter(Boolean);
+    if (resolvedKeys.length === 0) {
+      throw new Error("embedding.apiKey must contain at least one non-empty key for hosted embedding providers");
+    }
 
     this._model = config.model;
     this._baseURL = config.baseURL;
@@ -570,11 +563,12 @@ export class Embedder {
         }
       }
 
-      return new OpenAI({
-        apiKey: key,
+      const clientOptions = {
         ...(baseURL ? { baseURL } : {}),
         defaultHeaders: Object.keys(defaultHeaders).length > 0 ? defaultHeaders : undefined,
-      });
+      } as ConstructorParameters<typeof OpenAI>[0];
+      clientOptions.apiKey = key;
+      return new OpenAI(clientOptions);
     });
 
     if (this.clients.length > 1) {
