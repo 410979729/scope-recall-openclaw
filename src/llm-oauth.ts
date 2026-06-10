@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { readOAuthSessionFile } from "./oauth-session-storage.js";
 
 export interface OAuthLoginOptions {
   authPath: string;
@@ -309,7 +310,7 @@ function extractSessionFromObject(source: Record<string, unknown>, authPath: str
 export async function loadOAuthSession(authPath: string): Promise<OAuthSession> {
   let raw: string;
   try {
-    raw = await readFile(authPath, "utf8");
+    raw = await readOAuthSessionFile(authPath);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     throw new Error(

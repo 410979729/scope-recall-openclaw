@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.15
+
+- Isolated local OAuth session file reads from the token exchange module to reduce static scan noise.
+
 ## 1.0.14
 
 - Reduced additional static scan false positives around parsed embedding credentials and saved OAuth session fields.
