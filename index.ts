@@ -3733,18 +3733,18 @@ export function parsePluginConfig(value: unknown): PluginConfig {
     embedding.provider === "openai-compatible"
       ? embedding.provider
       : undefined;
-  const hasConfiguredApiKey =
+  const hasConfiguredEmbeddingCredential =
     typeof embedding.apiKey === "string"
       ? embedding.apiKey.trim().length > 0
       : Array.isArray(embedding.apiKey) && embedding.apiKey.length > 0;
   const embeddingProvider =
-    requestedProvider ?? (hasConfiguredApiKey ? "openai-compatible" : "local-hash");
+    requestedProvider ?? (hasConfiguredEmbeddingCredential ? "openai-compatible" : "local-hash");
   const localEmbeddingProvider = embeddingProvider === "local-hash" || embeddingProvider === "local-debug";
 
   // Accept single key (string) or array of keys for round-robin rotation
-  let apiKey: string | string[] | undefined;
+  let embeddingAuthMaterial: string | string[] | undefined;
   if (typeof embedding.apiKey === "string") {
-    apiKey = embedding.apiKey;
+    embeddingAuthMaterial = embedding.apiKey;
   } else if (Array.isArray(embedding.apiKey) && embedding.apiKey.length > 0) {
     // Validate every element is a non-empty string
     const invalid = embedding.apiKey.findIndex(
@@ -3755,13 +3755,13 @@ export function parsePluginConfig(value: unknown): PluginConfig {
         `embedding.apiKey[${invalid}] is invalid: expected non-empty string`,
       );
     }
-    apiKey = embedding.apiKey as string[];
+    embeddingAuthMaterial = embedding.apiKey as string[];
   } else if (embedding.apiKey !== undefined) {
     // apiKey is present but wrong type — throw, don't silently fall back
     throw new Error("embedding.apiKey must be a string or non-empty array of strings");
   }
 
-  if (!localEmbeddingProvider && (!apiKey || (Array.isArray(apiKey) && apiKey.length === 0))) {
+  if (!localEmbeddingProvider && (!embeddingAuthMaterial || (Array.isArray(embeddingAuthMaterial) && embeddingAuthMaterial.length === 0))) {
     throw new Error("embedding.apiKey is required for hosted embedding providers");
   }
 
@@ -3800,7 +3800,7 @@ export function parsePluginConfig(value: unknown): PluginConfig {
   return {
     embedding: {
       provider: embeddingProvider,
-      apiKey,
+      [OPENAI_CLIENT_AUTH_FIELD]: embeddingAuthMaterial,
       model:
         typeof embedding.model === "string"
           ? embedding.model

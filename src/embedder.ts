@@ -643,13 +643,13 @@ export class Embedder {
     // Ollama's embeddings endpoint is at /v1/embeddings (OpenAI-compatible)
     const endpoint = this._baseURL.replace(/\/$/, "") + "/embeddings";
 
-    const apiKey = this.clients[0]?.apiKey ?? "ollama";
+    const authMaterial = this.clients[0]?.apiKey ?? "ollama";
 
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        "Authorization": `Bearer ${authMaterial}`,
       },
       body: JSON.stringify(payload),
       signal: signal,

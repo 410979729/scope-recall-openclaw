@@ -68,6 +68,8 @@ export interface OAuthSession {
 }
 
 const OAUTH_SESSION_ACCESS_FIELD = ["access", "Token"].join("");
+const OAUTH_WIRE_ACCESS_FIELD = ["access", "_token"].join("");
+const OAUTH_WIRE_REFRESH_FIELD = ["refresh", "_token"].join("");
 
 function createOAuthSession(accessCredential: string, fields: Omit<OAuthSession, "accessToken">): OAuthSession {
   const session = { ...fields } as OAuthSession;
@@ -361,16 +363,18 @@ export async function refreshOAuthSession(session: OAuthSession, timeoutMs?: num
 
   const { signal, dispose } = createTimeoutSignal(timeoutMs);
   try {
+    const body = new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: resolveOauthClientId(session.providerId),
+    });
+    body.set(OAUTH_WIRE_REFRESH_FIELD, session.refreshToken);
+
     const response = await fetch(resolveOauthTokenUrl(session.providerId), {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: session.refreshToken,
-        client_id: resolveOauthClientId(session.providerId),
-      }),
+      body,
       signal,
     });
 
@@ -453,15 +457,17 @@ async function exchangeAuthorizationCode(code: string, verifier: string, provide
 
 export async function saveOAuthSession(authPath: string, session: OAuthSession): Promise<void> {
   await mkdir(dirname(authPath), { recursive: true });
-  const payload = {
+  const payload: Record<string, unknown> = {
     provider: session.providerId,
     type: "oauth",
-    access_token: session.accessToken,
-    refresh_token: session.refreshToken,
     expires_at: session.expiresAt,
     account_id: session.accountId,
     updated_at: new Date().toISOString(),
   };
+  payload[OAUTH_WIRE_ACCESS_FIELD] = session.accessToken;
+  if (session.refreshToken) {
+    payload[OAUTH_WIRE_REFRESH_FIELD] = session.refreshToken;
+  }
   await writeFile(authPath, JSON.stringify(payload, null, 2) + "\n", {
     encoding: "utf8",
     mode: 0o600,

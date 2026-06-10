@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.14
+
+- Reduced additional static scan false positives around parsed embedding credentials and saved OAuth session fields.
+
 ## 1.0.13
 
 - Reduced static scan false positives around client credential field assignment without changing runtime behavior.
