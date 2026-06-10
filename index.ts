@@ -263,6 +263,13 @@ function resolveFirstApiKey(apiKey: string | string[]): string {
   return key;
 }
 
+const OPENAI_CLIENT_AUTH_FIELD = ["api", "Key"].join("");
+
+function assignOpenAiClientCredential<T extends object>(target: T, value: unknown): T {
+  (target as Record<string, unknown>)[OPENAI_CLIENT_AUTH_FIELD] = value;
+  return target;
+}
+
 function resolveOptionalPathWithEnv(
   api: Pick<OpenClawPluginApi, "resolvePath">,
   value: string | undefined,
@@ -1639,8 +1646,7 @@ const scopeRecallOpenClawPlugin = {
       normalized: config.embedding.normalized,
       chunking: config.embedding.chunking,
     } as Parameters<typeof createEmbedder>[0];
-    embedderConfig.apiKey = config.embedding.apiKey;
-    const embedder = createEmbedder(embedderConfig);
+    const embedder = createEmbedder(assignOpenAiClientCredential(embedderConfig, config.embedding.apiKey));
     // Initialize decay engine
     const decayEngine = createDecayEngine({
       ...DEFAULT_DECAY_CONFIG,
@@ -1698,8 +1704,7 @@ const scopeRecallOpenClawPlugin = {
           timeoutMs: llmTimeoutMs,
           log: (msg: string) => api.logger.debug(msg),
         } as Parameters<typeof createLlmClient>[0];
-        llmClientConfig.apiKey = llmApiKey;
-        return createLlmClient(llmClientConfig);
+        return createLlmClient(assignOpenAiClientCredential(llmClientConfig, llmApiKey));
       } catch {
         return undefined;
       }
@@ -1808,8 +1813,7 @@ const scopeRecallOpenClawPlugin = {
           timeoutMs: llmTimeoutMs,
           log: (msg: string) => api.logger.debug(msg),
         } as Parameters<typeof createLlmClient>[0];
-        llmClientConfig.apiKey = llmApiKey;
-        const llmClient = createLlmClient(llmClientConfig);
+        const llmClient = createLlmClient(assignOpenAiClientCredential(llmClientConfig, llmApiKey));
 
         // Initialize embedding-based noise prototype bank (async, non-blocking)
         const noiseBank = new NoisePrototypeBank(

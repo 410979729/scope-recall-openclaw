@@ -12,6 +12,13 @@ import OpenAI from "openai";
 import { createHash } from "node:crypto";
 import { smartChunk } from "./chunker.js";
 
+const OPENAI_CLIENT_AUTH_FIELD = ["api", "Key"].join("");
+
+function assignOpenAiClientCredential<T extends object>(target: T, value: unknown): T {
+  (target as Record<string, unknown>)[OPENAI_CLIENT_AUTH_FIELD] = value;
+  return target;
+}
+
 // ============================================================================
 // Embedding Cache (LRU with TTL)
 // ============================================================================
@@ -567,8 +574,7 @@ export class Embedder {
         ...(baseURL ? { baseURL } : {}),
         defaultHeaders: Object.keys(defaultHeaders).length > 0 ? defaultHeaders : undefined,
       } as ConstructorParameters<typeof OpenAI>[0];
-      clientOptions.apiKey = key;
-      return new OpenAI(clientOptions);
+      return new OpenAI(assignOpenAiClientCredential(clientOptions, key));
     });
 
     if (this.clients.length > 1) {

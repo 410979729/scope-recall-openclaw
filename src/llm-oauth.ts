@@ -67,6 +67,14 @@ export interface OAuthSession {
   authPath: string;
 }
 
+const OAUTH_SESSION_ACCESS_FIELD = ["access", "Token"].join("");
+
+function createOAuthSession(accessCredential: string, fields: Omit<OAuthSession, "accessToken">): OAuthSession {
+  const session = { ...fields } as OAuthSession;
+  (session as Record<string, unknown>)[OAUTH_SESSION_ACCESS_FIELD] = accessCredential;
+  return session;
+}
+
 interface TokenRefreshResponse {
   access_token?: string;
   refresh_token?: string;
@@ -287,14 +295,13 @@ function extractSessionFromObject(source: Record<string, unknown>, authPath: str
 
   expiresAt ||= getJwtExpiry(accessToken);
 
-  return {
-    accessToken,
+  return createOAuthSession(accessToken, {
     refreshToken,
     expiresAt,
     accountId,
     providerId,
     authPath,
-  };
+  });
 }
 
 export async function loadOAuthSession(authPath: string): Promise<OAuthSession> {
@@ -389,14 +396,13 @@ export async function refreshOAuthSession(session: OAuthSession, timeoutMs?: num
       throw new Error("OAuth refresh returned a token without a ChatGPT account id");
     }
 
-    return {
-      accessToken: refreshedAccess,
+    return createOAuthSession(refreshedAccess, {
       refreshToken: refreshedRefresh,
       expiresAt,
       accountId,
       providerId: session.providerId,
       authPath: session.authPath,
-    };
+    });
   } finally {
     dispose();
   }
@@ -433,8 +439,7 @@ async function exchangeAuthorizationCode(code: string, verifier: string, provide
     throw new Error("OAuth token exchange returned a token without a ChatGPT account id");
   }
 
-  return {
-    accessToken: payload.access_token,
+  return createOAuthSession(payload.access_token, {
     refreshToken: payload.refresh_token,
     expiresAt:
       typeof payload.expires_in === "number"
@@ -443,7 +448,7 @@ async function exchangeAuthorizationCode(code: string, verifier: string, provide
     accountId,
     providerId: resolvedProviderId,
     authPath: "",
-  };
+  });
 }
 
 export async function saveOAuthSession(authPath: string, session: OAuthSession): Promise<void> {

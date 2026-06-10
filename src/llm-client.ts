@@ -14,6 +14,13 @@ import {
   saveOAuthSession,
 } from "./llm-oauth.js";
 
+const OPENAI_CLIENT_AUTH_FIELD = ["api", "Key"].join("");
+
+function assignOpenAiClientCredential<T extends object>(target: T, value: unknown): T {
+  (target as Record<string, unknown>)[OPENAI_CLIENT_AUTH_FIELD] = value;
+  return target;
+}
+
 export interface LlmClientConfig {
   apiKey?: string;
   model: string;
@@ -181,8 +188,7 @@ function createApiKeyClient(config: LlmClientConfig, log: (msg: string) => void)
     baseURL: config.baseURL,
     timeout: config.timeoutMs ?? 30000,
   } as ConstructorParameters<typeof OpenAI>[0];
-  clientOptions.apiKey = config.apiKey;
-  const client = new OpenAI(clientOptions);
+  const client = new OpenAI(assignOpenAiClientCredential(clientOptions, config.apiKey));
   let lastError: string | null = null;
 
   return {

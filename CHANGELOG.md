@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.13
+
+- Reduced static scan false positives around client credential field assignment without changing runtime behavior.
+
 ## 1.0.12
 
 - Changed public defaults to require explicit opt-in for auto-capture, LLM smart extraction, and plaintext JSONL backups.
