@@ -3,6 +3,7 @@ export type CaptureSafetyReason =
   | "injected-context"
   | "system-wrapper"
   | "context-compaction"
+  | "operational-trace"
   | "secret";
 
 export interface CaptureSafetyDecision {
@@ -25,9 +26,11 @@ function looksLikePlaceholder(value: string): boolean {
     lower.includes("example") ||
     lower.includes("placeholder") ||
     lower.includes("dummy") ||
+    lower.includes("redacted") ||
     lower.includes("test-key") ||
     lower.includes("your-key") ||
-    lower.includes("changeme")
+    lower.includes("changeme") ||
+    value.includes("****")
   );
 }
 
@@ -59,6 +62,21 @@ const SECRET_PATTERNS: SecretPattern[] = [
   {
     name: "secret-assignment",
     re: /\b(?:api[_-]?key|apikey|secret|token|password|passwd|private[_-]?key|client[_-]?secret|access[_-]?key|refresh[_-]?token)\b\s*[:=]\s*["'`]?([A-Za-z0-9_./+=:@-]{16,})/i,
+    valueIndex: 1,
+  },
+  {
+    name: "credential-pair-with-password",
+    re: /(?:账号|用户名|用户|user(?:name)?|login)\s*(?:是|为|[:：=])\s*["'`]?[^\s"'`，。；;,)}\]]{2,}["'`]?(?:(?:[\s,，;；]+)|.{0,20})(?:密码|口令|password|passwd|pwd)\s*(?:是|为|[:：=])\s*["'`]?([^\s"'`，。；;,)}\]]{6,})/iu,
+    valueIndex: 1,
+  },
+  {
+    name: "chinese-password-assignment",
+    re: /(?:密码|口令|登录密码|远程密码)\s*(?:是|为|[:：=])\s*["'`]?([^\s"'`，。；;,)}\]]{6,})/iu,
+    valueIndex: 1,
+  },
+  {
+    name: "chinese-secret-assignment",
+    re: /(?:api\s*key|apikey|密钥|令牌|访问令牌|secret|token|凭证)\s*(?:是|为|[:：=])\s*["'`]?([A-Za-z0-9_./+=:@-]{12,})/iu,
     valueIndex: 1,
   },
   {
@@ -103,6 +121,13 @@ const SYSTEM_WRAPPER_PATTERNS: Array<{ name: string; re: RegExp }> = [
   { name: "current-user-request-wrapper", re: /^Current user request:/im },
 ];
 
+const OPERATIONAL_TRACE_PATTERNS: Array<{ name: string; re: RegExp }> = [
+  { name: "command-hints-block", re: /^Command hints:\s*[\s\S]*?(?:^Files:|^Result:|\|\s*status=)/im },
+  { name: "execution-status-marker", re: /\|\s*status=(?:completed|failed|running|cancelled)\b/i },
+  { name: "execution-result-block", re: /^Result:\s*(?:Command|Task|Exec|Shell|Tool)\b/im },
+  { name: "tool-fields-block", re: /^(?:Files|Result):\s*[\s\S]*\n(?:Files|Result|Command hints):/im },
+];
+
 const CONTEXT_COMPACTION_PATTERNS: Array<{ name: string; re: RegExp }> = [
   { name: "turn-context-split", re: /Turn Context \(split turn\):/i },
   { name: "compaction-summary", re: /^## (?:Goal|Progress|Decisions|Open TODOs|Constraints\/Rules|Pending user asks|Exact identifiers)\b/m },
@@ -142,6 +167,11 @@ export function evaluateCaptureSafety(text: string): CaptureSafetyDecision {
   const wrapper = matchPattern(SYSTEM_WRAPPER_PATTERNS, trimmed);
   if (wrapper) {
     return { allowed: false, reason: "system-wrapper", pattern: wrapper.name };
+  }
+
+  const operationalTrace = matchPattern(OPERATIONAL_TRACE_PATTERNS, trimmed);
+  if (operationalTrace) {
+    return { allowed: false, reason: "operational-trace", pattern: operationalTrace.name };
   }
 
   const compaction = matchPattern(CONTEXT_COMPACTION_PATTERNS, trimmed);

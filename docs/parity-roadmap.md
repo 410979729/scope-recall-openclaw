@@ -11,6 +11,13 @@
 - Native-free `sqlite-bruteforce` vector companion fallback.
 - Degraded no-key `local-hash` embedding fallback.
 - Read-only OpenClaw inspection tools: `memory_context` and `memory_inspect`.
+- OpenClaw-native `memory_govern` review candidates for conflict-review rows,
+  local/working scratch, legacy rows, inactive lifecycle rows, archived rows,
+  and low-confidence auto-capture candidates.
+- Dry-run-first `scripts/migrate-legacy-hygiene.mjs` for backup-backed SQLite
+  hygiene migration of legacy scratch and missing durable metadata.
+- Hermes 1.0.13-style conflict posture: contradiction evidence is linked for
+  review and does not automatically hide older memories.
 - Capture safety for common secret patterns.
 - Auto-recall, auto-capture, session reflection, and self-improvement hooks for OpenClaw sessions.
 - Release gate for manifest/package consistency and package hygiene.
@@ -20,7 +27,7 @@
 These are roadmap candidates, not current OpenClaw guarantees:
 
 - Entity probe, related entity, and feedback tools.
-- Benchmark-style recall checks and broader governance/export flows.
+- Benchmark-style recall checks and broader export flows.
 - Nightly workflow digest.
 - Hermes-specific shared durable versus local scratch scope semantics.
 - Hermes memory-provider packaging through `pyproject.toml` and `plugin.yaml`.

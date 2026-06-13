@@ -34,7 +34,7 @@ interface CLIContext {
   retriever: MemoryRetriever;
   scopeManager: MemoryScopeManager;
   migrator: MemoryMigrator;
-  embedder?: import("./src/embedder.js").Embedder;
+  embedder?: import("./src/embedder.js").TextEmbedder;
   llmClient?: LlmClient;
   pluginId?: string;
   pluginConfig?: Record<string, unknown>;

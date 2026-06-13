@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.17
+
+- Restored fail-closed agent context handling for all memory tools; missing OpenClaw runtime identity no longer falls back to `agent:main`.
+- Hardened `memory_store_secret_index` so free-text metadata fields are rejected by the capture-safety filter before they can enter SQLite/FTS/vector indexes.
+- Added `rejected` state support to operator schemas and default archive-layer handling for rejected governance outcomes.
+- Added manifest `toolMetadata` availability guards for management-only tools while keeping `contracts.tools` as the full static ownership list.
+- Added a TypeScript `typecheck` gate and safety regression tests for missing agent context, secret-index metadata, and rejected-state schemas.
+
+## 1.0.16
+
+- Aligned the OpenClaw port with the latest Hermes `scope-recall` conflict-governance behavior: contradiction evidence now creates review metadata and bidirectional `contradicts` relations instead of automatically hiding older memories.
+- Suppressed `archived`, `obsolete`, `rejected`, and `superseded` lifecycle rows from default recall activity checks.
+- Added the gated `memory_govern` review tool for conflict-review rows, local/working scratch, legacy rows, archived/inactive lifecycle rows, and low-confidence auto-capture candidates.
+- Added `scripts/migrate-legacy-hygiene.mjs`, a dry-run-first, backup-backed OpenClaw SQLite hygiene migrator for archiving legacy scratch rows and normalizing missing durable metadata.
+- Added regression tests for conflict review, lifecycle suppression, governance candidate scanning, legacy hygiene migration, and transient reflection retry behavior.
+
 ## 1.0.15
 
 - Isolated local OAuth session file reads from the token exchange module to reduce static scan noise.

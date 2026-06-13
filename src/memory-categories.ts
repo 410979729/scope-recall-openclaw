@@ -73,6 +73,7 @@ export type ExtractionStats = {
   rejected?: number; // admission control rejections
   boundarySkipped?: number;
   supported?: number; // context-aware support count
+  contradicted?: number; // conflict-review contradiction count
   superseded?: number; // temporal fact replacements
 };
 

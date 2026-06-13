@@ -35,7 +35,7 @@ type ReflectionErrorSignalLike = {
 
 interface ReflectionStorePayload {
   text: string;
-  metadata: Record<string, unknown>;
+  metadata: unknown;
   kind: ReflectionStoreKind;
 }
 

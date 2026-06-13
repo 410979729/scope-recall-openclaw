@@ -13,7 +13,7 @@ import type { MemoryEntry, MemoryStore } from "./store.js";
 import { isNoise } from "./noise-filter.js";
 import { evaluateCaptureSafety } from "./capture-safety.js";
 import { isSystemBypassId, resolveScopeFilter, parseAgentIdFromSessionKey, type MemoryScopeManager } from "./scopes.js";
-import type { Embedder } from "./embedder.js";
+import type { TextEmbedder } from "./embedder.js";
 import {
   appendRelation,
   buildSmartMetadata,
@@ -30,6 +30,12 @@ import {
   isUserMdExclusiveMemory,
   type WorkspaceBoundaryConfig,
 } from "./workspace-boundary.js";
+import { enrichContentWithArtifactAnchors, mergeArtifactMetadata } from "./artifacts.js";
+import { buildSecretIndex } from "./secret-index.js";
+import {
+  buildGovernanceReviewCandidates,
+  recordConflictReviewRelations,
+} from "./conflict-governance.js";
 
 // ============================================================================
 // Types
@@ -59,18 +65,17 @@ interface ToolContext {
   retriever: MemoryRetriever;
   store: MemoryStore;
   scopeManager: MemoryScopeManager;
-  embedder: Embedder;
+  embedder: TextEmbedder;
   agentId?: string;
   workspaceDir?: string;
   mdMirror?: MdMirrorWriter | null;
   workspaceBoundary?: WorkspaceBoundaryConfig;
 }
 
-function resolveAgentId(runtimeAgentId: unknown, fallback?: string): string | undefined {
-  if (typeof runtimeAgentId === "string" && runtimeAgentId.trim().length > 0) return runtimeAgentId;
-  if (typeof fallback === "string" && fallback.trim().length > 0) return fallback;
-  return undefined;
-}
+type ToolTextResult = {
+  content: Array<{ type: "text"; text: string }>;
+  details?: Record<string, unknown>;
+};
 
 // ============================================================================
 // Utility Functions
@@ -193,17 +198,16 @@ export function _resetWarnedMissingAgentIdState(): void {
 function resolveRuntimeAgentId(
   staticAgentId: string | undefined,
   runtimeCtx: unknown,
-): string {
+): string | undefined {
   if (!runtimeCtx || typeof runtimeCtx !== "object") {
     const fallback = staticAgentId?.trim();
     if (!fallback && !_warnedMissingAgentId.has("no-context")) {
       _warnedMissingAgentId.add("no-context");
       console.warn(
-        "resolveRuntimeAgentId: no runtime context or static agentId, defaulting to 'main'. " +
-        "Tool callers without explicit agentId will be scoped to agent:main + global + reflection:agent:main."
+        "resolveRuntimeAgentId: no runtime context or static agentId; refusing implicit agent:main scope.",
       );
     }
-    return fallback || "main";
+    return fallback || undefined;
   }
   const ctx = runtimeCtx as Record<string, unknown>;
   const ctxAgentId = typeof ctx.agentId === "string" ? ctx.agentId : undefined;
@@ -213,10 +217,10 @@ function resolveRuntimeAgentId(
   if (!trimmed && !_warnedMissingAgentId.has("empty-resolved")) {
     _warnedMissingAgentId.add("empty-resolved");
     console.warn(
-      "resolveRuntimeAgentId: resolved agentId is empty after trim, defaulting to 'main'."
+      "resolveRuntimeAgentId: resolved agentId is empty after trim; refusing implicit agent:main scope."
     );
   }
-  return trimmed ? trimmed : "main";
+  return trimmed ? trimmed : undefined;
 }
 
 function resolveToolContext(
@@ -227,6 +231,31 @@ function resolveToolContext(
     ...base,
     agentId: resolveRuntimeAgentId(base.agentId, runtimeCtx),
   };
+}
+
+function missingAgentContextResponse(toolName: string): ToolTextResult {
+  return {
+    content: [
+      {
+        type: "text",
+        text: `${toolName} requires OpenClaw agent runtime context; refusing to fall back to agent:main.`,
+      },
+    ],
+    details: {
+      error: "missing_agent_context",
+      tool: toolName,
+    },
+  };
+}
+
+function requireRuntimeAgentId(
+  staticAgentId: string | undefined,
+  runtimeCtx: unknown,
+  toolName: string,
+): { ok: true; agentId: string } | { ok: false; response: ToolTextResult } {
+  const agentId = resolveRuntimeAgentId(staticAgentId, runtimeCtx);
+  if (agentId) return { ok: true, agentId };
+  return { ok: false, response: missingAgentContextResponse(toolName) };
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -240,6 +269,7 @@ async function retrieveWithRetry(
     limit: number;
     scopeFilter?: string[];
     category?: string;
+    source?: "manual" | "auto-recall" | "cli";
   },
 ): Promise<RetrievalResult[]> {
   let results = await retriever.retrieve(params);
@@ -331,7 +361,7 @@ export function registerSelfImprovementLogTool(api: OpenClawPluginApi, context: 
         area: Type.Optional(Type.String({ description: "frontend|backend|infra|tests|docs|config or custom area" })),
         priority: Type.Optional(Type.String({ description: "low|medium|high|critical" })),
       }),
-      async execute(_toolCallId, params) {
+      async execute(_toolCallId, params, _signal, _onUpdate, runtimeCtx) {
         const {
           type,
           summary,
@@ -392,7 +422,7 @@ export function registerSelfImprovementExtractSkillTool(api: OpenClawPluginApi, 
         sourceFile: Type.Optional(stringEnum(["LEARNINGS.md", "ERRORS.md"])),
         outputDir: Type.Optional(Type.String({ description: "Relative output dir under workspace (default: skills)" })),
       }),
-      async execute(_toolCallId, params) {
+      async execute(_toolCallId, params, _signal, _onUpdate, runtimeCtx) {
         const { learningId, skillName, sourceFile = "LEARNINGS.md", outputDir = "skills" } = params as {
           learningId: string;
           skillName: string;
@@ -593,7 +623,7 @@ export function registerMemoryRecallTool(
         ),
         category: Type.Optional(stringEnum(MEMORY_CATEGORIES)),
       }),
-      async execute(_toolCallId, params) {
+      async execute(_toolCallId, params, _signal, _onUpdate, runtimeCtx) {
         const {
           query,
           limit = 3,
@@ -611,11 +641,13 @@ export function registerMemoryRecallTool(
         };
 
         try {
+          const agentResolution = requireRuntimeAgentId(runtimeContext.agentId, runtimeCtx, "memory_recall");
+          if (agentResolution.ok === false) return agentResolution.response;
+          const agentId = agentResolution.agentId;
           const safeLimit = includeFullText
             ? clampInt(limit, 1, 20)
             : clampInt(limit, 1, 6);
           const safeCharsPerItem = clampInt(maxCharsPerItem, 60, 1000);
-          const agentId = runtimeContext.agentId;
 
           // Determine accessible scopes
           let scopeFilter = resolveScopeFilter(runtimeContext.scopeManager, agentId);
@@ -749,7 +781,7 @@ export function registerMemoryStoreTool(
           }),
         ),
       }),
-      async execute(_toolCallId, params) {
+      async execute(_toolCallId, params, _signal, _onUpdate, runtimeCtx) {
         const {
           text,
           importance = 0.7,
@@ -763,7 +795,9 @@ export function registerMemoryStoreTool(
         };
 
         try {
-          const agentId = runtimeContext.agentId;
+          const agentResolution = requireRuntimeAgentId(runtimeContext.agentId, runtimeCtx, "memory_store");
+          if (agentResolution.ok === false) return agentResolution.response;
+          const agentId = agentResolution.agentId;
           // Determine target scope
           let targetScope = scope;
           if (!targetScope) {
@@ -800,7 +834,8 @@ export function registerMemoryStoreTool(
             };
           }
 
-          const captureSafety = evaluateCaptureSafety(text);
+          const enrichedText = enrichContentWithArtifactAnchors(text);
+          const captureSafety = evaluateCaptureSafety(enrichedText);
           if (!captureSafety.allowed) {
             return {
               content: [
@@ -818,7 +853,7 @@ export function registerMemoryStoreTool(
           }
 
           // Reject noise before wasting an embedding API call
-          if (isNoise(text)) {
+          if (isNoise(enrichedText)) {
             return {
               content: [
                 {
@@ -826,13 +861,13 @@ export function registerMemoryStoreTool(
                   text: `Skipped: text detected as noise (greeting, boilerplate, or meta-question)`,
                 },
               ],
-              details: { action: "noise_filtered", text: text.slice(0, 60) },
+              details: { action: "noise_filtered", text: enrichedText.slice(0, 60) },
             };
           }
 
           if (
             isUserMdExclusiveMemory(
-              { text },
+              { text: enrichedText },
               runtimeContext.workspaceBoundary,
             )
           ) {
@@ -851,7 +886,7 @@ export function registerMemoryStoreTool(
           }
 
           const safeImportance = clamp01(importance, 0.7);
-          const vector = await runtimeContext.embedder.embedPassage(text);
+          const vector = await runtimeContext.embedder.embedPassage(enrichedText);
 
           // Check for duplicates using raw vector similarity (bypasses importance/recency weighting)
           // Fail-open by design: dedup must never block a legitimate memory write.
@@ -886,37 +921,50 @@ export function registerMemoryStoreTool(
           }
 
           const entry = await runtimeContext.store.store({
-            text,
+            text: enrichedText,
             vector,
             importance: safeImportance,
             category: category as any,
             scope: targetScope,
             metadata: stringifySmartMetadata(
-              buildSmartMetadata(
-                {
-                  text,
-                  category: category as any,
-                  importance: safeImportance,
-                },
-                {
-                  l0_abstract: text,
-                  l1_overview: `- ${text}`,
-                  l2_content: text,
-                  source: "manual",
-                  state: "confirmed",
-                  memory_layer: deriveManualMemoryLayer(category as string),
-                  last_confirmed_use_at: Date.now(),
-                  bad_recall_count: 0,
-                  suppressed_until_turn: 0,
-                },
+              mergeArtifactMetadata(
+                buildSmartMetadata(
+                  {
+                    text: enrichedText,
+                    category: category as any,
+                    importance: safeImportance,
+                  },
+                  {
+                    l0_abstract: enrichedText,
+                    l1_overview: `- ${enrichedText}`,
+                    l2_content: enrichedText,
+                    source: "manual",
+                    state: "confirmed",
+                    memory_layer: deriveManualMemoryLayer(category as string),
+                    last_confirmed_use_at: Date.now(),
+                    bad_recall_count: 0,
+                    suppressed_until_turn: 0,
+                  },
+                ),
+                enrichedText,
               ),
             ),
           });
+          let conflictReview: Awaited<ReturnType<typeof recordConflictReviewRelations>> | undefined;
+          try {
+            conflictReview = await recordConflictReviewRelations(
+              runtimeContext.store,
+              entry,
+              [targetScope],
+            );
+          } catch (err) {
+            console.warn(`scope-recall-openclaw: conflict-review marking failed: ${String(err)}`);
+          }
 
           // Dual-write to Markdown mirror if enabled
           if (context.mdMirror) {
             await context.mdMirror(
-              { text, category: category as string, scope: targetScope, timestamp: entry.timestamp },
+              { text: enrichedText, category: category as string, scope: targetScope, timestamp: entry.timestamp },
               { source: "memory_store", agentId },
             );
           }
@@ -925,7 +973,7 @@ export function registerMemoryStoreTool(
             content: [
               {
                 type: "text",
-                text: `Stored: "${text.slice(0, 100)}${text.length > 100 ? "..." : ""}" in scope '${targetScope}'`,
+                text: `Stored: "${enrichedText.slice(0, 100)}${enrichedText.length > 100 ? "..." : ""}" in scope '${targetScope}'`,
               },
             ],
             details: {
@@ -934,6 +982,7 @@ export function registerMemoryStoreTool(
               scope: entry.scope,
               category: entry.category,
               importance: entry.importance,
+              conflictReview,
             },
           };
         } catch (error) {
@@ -951,6 +1000,106 @@ export function registerMemoryStoreTool(
     };
     },
     { name: "memory_store" },
+  );
+}
+
+export function registerMemoryStoreSecretIndexTool(
+  api: OpenClawPluginApi,
+  context: ToolContext,
+) {
+  api.registerTool(
+    (toolCtx) => {
+      const runtimeContext = resolveToolContext(context, toolCtx);
+      return {
+        name: "memory_store_secret_index",
+        label: "Memory Store Secret Index",
+        description:
+          "Store searchable credential index metadata and vault references without storing plaintext secret values.",
+        parameters: Type.Object({
+          label: Type.Optional(Type.String({ description: "Human-readable credential label" })),
+          service: Type.Optional(Type.String({ description: "Service or product name" })),
+          account: Type.Optional(Type.String({ description: "Account, tenant, or project name" })),
+          username: Type.Optional(Type.String({ description: "Username or login identifier" })),
+          hostname: Type.Optional(Type.String({ description: "Host or server name" })),
+          vaultRef: Type.Optional(Type.String({ description: "External vault/keyring reference or locator" })),
+          secretType: Type.Optional(Type.String({ description: "password, token, api_key, private_key, cookie, credential, or other" })),
+          rotationDue: Type.Optional(Type.String({ description: "Optional rotation due date" })),
+          notes: Type.Optional(Type.String({ description: "Non-secret notes" })),
+          entities: Type.Optional(Type.Array(Type.String())),
+          tags: Type.Optional(Type.Array(Type.String())),
+          secretValue: Type.Optional(Type.String({ description: "Optional plaintext used only to compute a short SHA-256 fingerprint; never stored" })),
+          scope: Type.Optional(Type.String({ description: "Memory scope (optional, defaults to agent scope)" })),
+        }),
+        async execute(_toolCallId, params, _signal, _onUpdate, runtimeCtx) {
+          try {
+            const agentResolution = requireRuntimeAgentId(runtimeContext.agentId, runtimeCtx, "memory_store_secret_index");
+            if (agentResolution.ok === false) return agentResolution.response;
+            const agentId = agentResolution.agentId;
+            const raw = params as Record<string, unknown>;
+            let targetScope = typeof raw.scope === "string" && raw.scope.trim() ? raw.scope.trim() : undefined;
+            if (!targetScope) {
+              if (isSystemBypassId(agentId)) {
+                return {
+                  content: [{ type: "text", text: "Reserved bypass agent IDs must provide an explicit scope for secret index writes." }],
+                  details: { error: "explicit_scope_required", agentId },
+                };
+              }
+              targetScope = runtimeContext.scopeManager.getDefaultScope(agentId);
+            }
+            if (!runtimeContext.scopeManager.isAccessible(targetScope, agentId)) {
+              return {
+                content: [{ type: "text", text: `Access denied to scope: ${targetScope}` }],
+                details: { error: "scope_access_denied", requestedScope: targetScope },
+              };
+            }
+
+            const { content: text, metadata: secretMetadata } = buildSecretIndex(raw);
+            const vector = await runtimeContext.embedder.embedPassage(text);
+            const importance = clamp01(secretMetadata.importance as number, 0.82);
+            const entry = await runtimeContext.store.store({
+              text,
+              vector,
+              importance,
+              category: "fact",
+              scope: targetScope,
+              metadata: stringifySmartMetadata(
+                buildSmartMetadata(
+                  { text, category: "fact", importance },
+                  {
+                    ...secretMetadata,
+                    l0_abstract: text.split("\n").slice(0, 4).join("; "),
+                    l1_overview: text,
+                    l2_content: text,
+                    source: "manual",
+                    state: "confirmed",
+                    memory_layer: "durable",
+                    last_confirmed_use_at: Date.now(),
+                    bad_recall_count: 0,
+                    suppressed_until_turn: 0,
+                  },
+                ),
+              ),
+            });
+
+            return {
+              content: [{ type: "text", text: `Stored secret index ${entry.id.slice(0, 8)} in scope '${targetScope}' without plaintext secret value.` }],
+              details: {
+                action: "stored_secret_index",
+                id: entry.id,
+                scope: targetScope,
+                plaintextStored: false,
+              },
+            };
+          } catch (error) {
+            return {
+              content: [{ type: "text", text: `Secret index store failed: ${error instanceof Error ? error.message : String(error)}` }],
+              details: { error: "secret_index_store_failed", message: String(error) },
+            };
+          }
+        },
+      };
+    },
+    { name: "memory_store_secret_index" },
   );
 }
 
@@ -993,7 +1142,9 @@ export function registerMemoryForgetTool(
         };
 
         try {
-          const agentId = resolveRuntimeAgentId(runtimeContext.agentId, runtimeCtx);
+          const agentResolution = requireRuntimeAgentId(runtimeContext.agentId, runtimeCtx, "memory_forget");
+          if (agentResolution.ok === false) return agentResolution.response;
+          const agentId = agentResolution.agentId;
           // Determine accessible scopes
           let scopeFilter = resolveScopeFilter(runtimeContext.scopeManager, agentId);
           if (scope) {
@@ -1165,7 +1316,9 @@ export function registerMemoryUpdateTool(
           }
 
           // Determine accessible scopes
-          const agentId = resolveRuntimeAgentId(runtimeContext.agentId, runtimeCtx);
+          const agentResolution = requireRuntimeAgentId(runtimeContext.agentId, runtimeCtx, "memory_update");
+          if (agentResolution.ok === false) return agentResolution.response;
+          const agentId = agentResolution.agentId;
           const scopeFilter = resolveScopeFilter(runtimeContext.scopeManager, agentId);
 
           // Resolve memoryId: if it doesn't look like a UUID, try search
@@ -1402,7 +1555,9 @@ export function registerMemoryStatsTool(
         const { scope } = params as { scope?: string };
 
         try {
-          const agentId = resolveRuntimeAgentId(runtimeContext.agentId, runtimeCtx);
+          const agentResolution = requireRuntimeAgentId(runtimeContext.agentId, runtimeCtx, "memory_stats");
+          if (agentResolution.ok === false) return agentResolution.response;
+          const agentId = agentResolution.agentId;
           // Determine accessible scopes
           let scopeFilter = resolveScopeFilter(context.scopeManager, agentId);
           if (scope) {
@@ -1505,7 +1660,7 @@ export function registerMemoryDebugTool(
 ) {
   api.registerTool(
     (toolCtx) => {
-      const agentId = resolveAgentId((toolCtx as any)?.agentId, context.agentId) ?? "main";
+      const runtimeContext = resolveToolContext(context, toolCtx);
       return {
         name: "memory_debug",
         label: "Memory Debug",
@@ -1520,11 +1675,14 @@ export function registerMemoryDebugTool(
             Type.String({ description: "Specific memory scope to search in (optional)" }),
           ),
         }),
-        async execute(_toolCallId, params) {
+        async execute(_toolCallId, params, _signal, _onUpdate, runtimeCtx) {
           const { query, limit = 5, scope } = params as {
             query: string; limit?: number; scope?: string;
           };
           try {
+            const agentResolution = requireRuntimeAgentId(runtimeContext.agentId, runtimeCtx, "memory_debug");
+            if (agentResolution.ok === false) return agentResolution.response;
+            const agentId = agentResolution.agentId;
             const safeLimit = clampInt(limit, 1, 20);
             let scopeFilter = resolveScopeFilter(context.scopeManager, agentId);
             if (scope) {
@@ -1656,7 +1814,9 @@ export function registerMemoryListTool(
         try {
           const safeLimit = clampInt(limit, 1, 50);
           const safeOffset = clampInt(offset, 0, 1000);
-          const agentId = resolveRuntimeAgentId(runtimeContext.agentId, runtimeCtx);
+          const agentResolution = requireRuntimeAgentId(runtimeContext.agentId, runtimeCtx, "memory_list");
+          if (agentResolution.ok === false) return agentResolution.response;
+          const agentId = agentResolution.agentId;
 
           // Determine accessible scopes
           let scopeFilter = resolveScopeFilter(context.scopeManager, agentId);
@@ -1781,6 +1941,7 @@ export function registerMemoryContextTool(
             Type.Literal("pending"),
             Type.Literal("confirmed"),
             Type.Literal("archived"),
+            Type.Literal("rejected"),
           ])),
           layer: Type.Optional(Type.Union([
             Type.Literal("durable"),
@@ -1816,7 +1977,9 @@ export function registerMemoryContextTool(
           try {
             const safeLimit = clampInt(limit, 1, 30);
             const safeOffset = clampInt(offset, 0, 1000);
-            const agentId = resolveRuntimeAgentId(runtimeContext.agentId, runtimeCtx);
+            const agentResolution = requireRuntimeAgentId(runtimeContext.agentId, runtimeCtx, "memory_context");
+            if (agentResolution.ok === false) return agentResolution.response;
+            const agentId = agentResolution.agentId;
             let scopeFilter = resolveScopeFilter(runtimeContext.scopeManager, agentId);
             if (scope) {
               if (!runtimeContext.scopeManager.isAccessible(scope, agentId)) {
@@ -1932,7 +2095,9 @@ export function registerMemoryInspectTool(
           }
 
           try {
-            const agentId = resolveRuntimeAgentId(runtimeContext.agentId, runtimeCtx);
+            const agentResolution = requireRuntimeAgentId(runtimeContext.agentId, runtimeCtx, "memory_inspect");
+            if (agentResolution.ok === false) return agentResolution.response;
+            const agentId = agentResolution.agentId;
             let scopeFilter = resolveScopeFilter(runtimeContext.scopeManager, agentId);
             if (scope) {
               if (!runtimeContext.scopeManager.isAccessible(scope, agentId)) {
@@ -1949,7 +2114,7 @@ export function registerMemoryInspectTool(
               memoryId ?? query ?? "",
               scopeFilter,
             );
-            if (!resolved.ok) {
+            if (resolved.ok === false) {
               return {
                 content: [{ type: "text", text: resolved.message }],
                 details: resolved.details ?? { error: "resolve_failed" },
@@ -2001,6 +2166,76 @@ export function registerMemoryInspectTool(
   );
 }
 
+export function registerMemoryGovernTool(
+  api: OpenClawPluginApi,
+  context: ToolContext,
+) {
+  api.registerTool(
+    (toolCtx) => {
+      const runtimeContext = resolveToolContext(context, toolCtx);
+      return {
+        name: "memory_govern",
+        label: "Memory Governance Review",
+        description:
+          "List memories that need operator review: conflicts, archived/inactive lifecycle rows, local scratch, legacy rows, and low-confidence auto-captures.",
+        parameters: Type.Object({
+          scope: Type.Optional(Type.String({ description: "Optional accessible scope filter." })),
+          limit: Type.Optional(Type.Number({ description: "Max candidates to return (default: 20, max: 100)." })),
+          includeText: Type.Optional(Type.Boolean({ description: "Include full memory text in details." })),
+        }),
+        async execute(_toolCallId, params, _signal, _onUpdate, runtimeCtx) {
+          const { scope, limit = 20, includeText = false } = params as {
+            scope?: string;
+            limit?: number;
+            includeText?: boolean;
+          };
+          const safeLimit = clampInt(limit, 1, 100);
+          const agentResolution = requireRuntimeAgentId(runtimeContext.agentId, runtimeCtx, "memory_govern");
+          if (agentResolution.ok === false) return agentResolution.response;
+          const agentId = agentResolution.agentId;
+          let scopeFilter = resolveScopeFilter(context.scopeManager, agentId);
+          if (scope) {
+            if (!context.scopeManager.isAccessible(scope, agentId)) {
+              return {
+                content: [{ type: "text", text: `Access denied to scope: ${scope}` }],
+                details: { error: "scope_access_denied", requestedScope: scope },
+              };
+            }
+            scopeFilter = [scope];
+          }
+
+          const entries = await context.store.list(scopeFilter, undefined, 1000, 0);
+          const candidates = buildGovernanceReviewCandidates(entries, {
+            limit: safeLimit,
+            includeText,
+          });
+          if (candidates.length === 0) {
+            return {
+              content: [{ type: "text", text: "No memory governance candidates found." }],
+              details: { count: 0, scopes: scopeFilter },
+            };
+          }
+
+          const lines = candidates.map((candidate, index) => {
+            const reasons = candidate.reasons.join(",");
+            return `${index + 1}. [${candidate.id}] [${candidate.category}:${candidate.scope}] ${truncateText(normalizeInlineText(candidate.text), 140)} (${reasons}; action=${candidate.suggestedAction})`;
+          });
+
+          return {
+            content: [{ type: "text", text: `Memory governance candidates (${candidates.length}):\n\n${lines.join("\n")}` }],
+            details: {
+              count: candidates.length,
+              candidates,
+              scopes: scopeFilter,
+            },
+          };
+        },
+      };
+    },
+    { name: "memory_govern" },
+  );
+}
+
 export function registerMemoryPromoteTool(
   api: OpenClawPluginApi,
   context: ToolContext,
@@ -2012,7 +2247,7 @@ export function registerMemoryPromoteTool(
         name: "memory_promote",
         label: "Memory Promote",
         description:
-          "Promote a memory into confirmed/durable governance state so it can participate in conservative auto-recall.",
+          "Set a memory governance state/layer, including confirmed promotion or archive/rejected review outcomes.",
         parameters: Type.Object({
           memoryId: Type.Optional(
             Type.String({ description: "Memory id (UUID/prefix). Optional when query is provided." }),
@@ -2025,6 +2260,7 @@ export function registerMemoryPromoteTool(
             Type.Literal("pending"),
             Type.Literal("confirmed"),
             Type.Literal("archived"),
+            Type.Literal("rejected"),
           ])),
           layer: Type.Optional(Type.Union([
             Type.Literal("durable"),
@@ -2039,14 +2275,15 @@ export function registerMemoryPromoteTool(
             query,
             scope,
             state = "confirmed",
-            layer = "durable",
+            layer,
           } = params as {
             memoryId?: string;
             query?: string;
             scope?: string;
-            state?: "pending" | "confirmed" | "archived";
+            state?: "pending" | "confirmed" | "archived" | "rejected";
             layer?: "durable" | "working" | "reflection" | "archive";
           };
+          const targetLayer = layer ?? (state === "archived" || state === "rejected" ? "archive" : "durable");
 
           if (!memoryId && !query) {
             return {
@@ -2055,7 +2292,9 @@ export function registerMemoryPromoteTool(
             };
           }
 
-          const agentId = resolveRuntimeAgentId(runtimeContext.agentId, runtimeCtx);
+          const agentResolution = requireRuntimeAgentId(runtimeContext.agentId, runtimeCtx, "memory_promote");
+          if (agentResolution.ok === false) return agentResolution.response;
+          const agentId = agentResolution.agentId;
           let scopeFilter = resolveScopeFilter(context.scopeManager, agentId);
           if (scope) {
             if (!context.scopeManager.isAccessible(scope, agentId)) {
@@ -2072,7 +2311,7 @@ export function registerMemoryPromoteTool(
             memoryId ?? query ?? "",
             scopeFilter,
           );
-          if (!resolved.ok) {
+          if (resolved.ok === false) {
             return {
               content: [{ type: "text", text: resolved.message }],
               details: resolved.details ?? { error: "resolve_failed" },
@@ -2093,7 +2332,7 @@ export function registerMemoryPromoteTool(
             {
               source: "manual",
               state,
-              memory_layer: layer,
+              memory_layer: targetLayer,
               last_confirmed_use_at: state === "confirmed" ? now : undefined,
               bad_recall_count: 0,
               suppressed_until_turn: 0,
@@ -2110,13 +2349,13 @@ export function registerMemoryPromoteTool(
           return {
             content: [{
               type: "text",
-              text: `Promoted memory ${resolved.id.slice(0, 8)} to state=${state}, layer=${layer}.`,
+              text: `Updated memory ${resolved.id.slice(0, 8)} to state=${state}, layer=${targetLayer}.`,
             }],
             details: {
-              action: "promoted",
+              action: "state_updated",
               id: resolved.id,
               state,
-              layer,
+              layer: targetLayer,
             },
           };
         },
@@ -2158,7 +2397,9 @@ export function registerMemoryArchiveTool(
             };
           }
 
-          const agentId = resolveRuntimeAgentId(runtimeContext.agentId, runtimeCtx);
+          const agentResolution = requireRuntimeAgentId(runtimeContext.agentId, runtimeCtx, "memory_archive");
+          if (agentResolution.ok === false) return agentResolution.response;
+          const agentId = agentResolution.agentId;
           let scopeFilter = resolveScopeFilter(context.scopeManager, agentId);
           if (scope) {
             if (!context.scopeManager.isAccessible(scope, agentId)) {
@@ -2175,7 +2416,7 @@ export function registerMemoryArchiveTool(
             memoryId ?? query ?? "",
             scopeFilter,
           );
-          if (!resolved.ok) {
+          if (resolved.ok === false) {
             return {
               content: [{ type: "text", text: resolved.message }],
               details: resolved.details ?? { error: "resolve_failed" },
@@ -2232,7 +2473,9 @@ export function registerMemoryCompactTool(
           };
 
           const safeLimit = clampInt(limit, 20, 1000);
-          const agentId = resolveRuntimeAgentId(runtimeContext.agentId, runtimeCtx);
+          const agentResolution = requireRuntimeAgentId(runtimeContext.agentId, runtimeCtx, "memory_compact");
+          if (agentResolution.ok === false) return agentResolution.response;
+          const agentId = agentResolution.agentId;
           let scopeFilter = resolveScopeFilter(context.scopeManager, agentId);
           if (scope) {
             if (!context.scopeManager.isAccessible(scope, agentId)) {
@@ -2330,7 +2573,9 @@ export function registerMemoryExplainRankTool(
           };
 
           const safeLimit = clampInt(limit, 1, 20);
-          const agentId = resolveRuntimeAgentId(runtimeContext.agentId, runtimeCtx);
+          const agentResolution = requireRuntimeAgentId(runtimeContext.agentId, runtimeCtx, "memory_explain_rank");
+          if (agentResolution.ok === false) return agentResolution.response;
+          const agentId = agentResolution.agentId;
           let scopeFilter = resolveScopeFilter(context.scopeManager, agentId);
           if (scope) {
             if (!context.scopeManager.isAccessible(scope, agentId)) {
@@ -2400,6 +2645,7 @@ export function registerAllMemoryTools(
   // Core tools (always enabled)
   registerMemoryRecallTool(api, context);
   registerMemoryStoreTool(api, context);
+  registerMemoryStoreSecretIndexTool(api, context);
   registerMemoryForgetTool(api, context);
   registerMemoryUpdateTool(api, context);
 
@@ -2410,6 +2656,7 @@ export function registerAllMemoryTools(
     registerMemoryListTool(api, context);
     registerMemoryContextTool(api, context);
     registerMemoryInspectTool(api, context);
+    registerMemoryGovernTool(api, context);
     registerMemoryPromoteTool(api, context);
     registerMemoryArchiveTool(api, context);
     registerMemoryCompactTool(api, context);

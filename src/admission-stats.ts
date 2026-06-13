@@ -12,7 +12,7 @@ const ADMISSION_WINDOWS = [
 export interface AdmissionAuditedMemoryLike {
   metadata?: string;
   timestamp?: number;
-  category?: string;
+  category?: "preference" | "fact" | "decision" | "entity" | "other" | "reflection";
   text?: string;
   importance?: number;
 }

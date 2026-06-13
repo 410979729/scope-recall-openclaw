@@ -37,12 +37,14 @@ This package is not a one-for-one Hermes plugin copy. It is adapted to OpenClaw'
 
 - OpenClaw dynamic tools: `memory_recall`, `memory_store`, `memory_forget`, and `memory_update`.
 - Optional operator and inspection tools when enabled: `memory_stats`, `memory_debug`, `memory_list`, `memory_context`, `memory_inspect`, `memory_promote`, `memory_archive`, `memory_compact`, and `memory_explain_rank`.
+- OpenClaw-native governance review with `memory_govern`, including conflict-review rows, legacy/working scratch rows, inactive lifecycle rows, archived rows, and low-confidence capture candidates.
+- Dry-run-first SQLite hygiene migration via `scripts/migrate-legacy-hygiene.mjs` for archiving legacy scratch rows and normalizing missing durable metadata without deleting content.
 - OpenClaw command aliases: `openclaw scope-recall` and compatibility alias `openclaw memory-pro`.
 - OpenClaw session hooks for auto-recall, auto-capture, session memory, memory reflection, and self-improvement reminders.
 
-Hermes-only V1 surfaces such as entity probe/related/feedback tools, `scope_recall_benchmark`, nightly workflow digest, and Hermes-specific shared-durable/local-scratch scope semantics remain separate roadmap items until they have OpenClaw-native UX, tests, and operator documentation.
+Hermes-only V1 surfaces such as entity probe/related/feedback tools, `scope_recall_benchmark`, nightly workflow digest, and Hermes-specific shared-durable/local-scratch scope semantics remain separate roadmap items until they have OpenClaw-native UX, tests, and operator documentation. Conflict handling now follows the Hermes 1.0.13 posture: contradictions are flagged for operator review and linked with `contradicts` metadata instead of automatically superseding older memories.
 
-`memory_context` and `memory_inspect` are OpenClaw-native inspection tools, not direct Hermes name copies. They are read-only management tools for checking accessible memory context, single-record lifecycle metadata, relations, source/state/layer filters, and scope boundaries before changing recall behavior.
+`memory_context`, `memory_inspect`, and `memory_govern` are OpenClaw-native inspection tools, not direct Hermes name copies. They are read-only management tools for checking accessible memory context, single-record lifecycle metadata, relations, source/state/layer filters, governance candidates, and scope boundaries before changing recall behavior.
 
 ## Storage Model
 

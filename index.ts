@@ -54,6 +54,7 @@ import {
 } from "./src/reflection-slices.js";
 import { createReflectionEventId } from "./src/reflection-event-store.js";
 import { buildReflectionMappedMetadata } from "./src/reflection-mapped-metadata.js";
+import { parseReflectionMetadata } from "./src/reflection-metadata.js";
 import { isNoise } from "./src/noise-filter.js";
 import { normalizeAutoCaptureText } from "./src/auto-capture-cleanup.js";
 import { evaluateCaptureSafety } from "./src/capture-safety.js";
@@ -91,11 +92,12 @@ import { analyzeIntent, applyCategoryBoost } from "./src/intent-analyzer.js";
 
 interface PluginConfig {
   embedding: {
-    provider: "openai-compatible" | "azure-openai" | "local-hash" | "local-debug";
+    provider: "openai-compatible" | "azure-openai" | "local-hash" | "local-debug" | "minimax";
     apiKey?: string | string[];
     model?: string;
     baseURL?: string;
     dimensions?: number;
+    groupId?: string;
     omitDimensions?: boolean;
     taskQuery?: string;
     taskPassage?: string;
@@ -987,7 +989,7 @@ async function generateReflectionText(params: {
   thinkLevel: ReflectionThinkLevel;
   toolErrorSignals?: ReflectionErrorSignal[];
   logger?: { info?: (message: string) => void; warn?: (message: string) => void };
-}): Promise<{ text: string; usedFallback: boolean; promptHash: string; error?: string; runner: "embedded" | "fallback" }> {
+}): Promise<{ text: string; usedFallback: boolean; promptHash: string; error?: string; runner: "embedded" | "fallback" | "cli" }> {
   const prompt = buildReflectionPrompt(
     params.conversation,
     params.maxInputChars,
@@ -1444,6 +1446,16 @@ const pluginVersion = getPluginVersion();
 
 const DEFAULT_HOST_MEMORY_WORKSPACE_DIR = join(homedir(), ".openclaw", "workspace");
 
+function isReflectionMetadataType(type: unknown): boolean {
+  return type === "memory-reflection-item" || type === "memory-reflection";
+}
+
+function isOwnedByAgent(metadata: Record<string, unknown>, agentId: string): boolean {
+  const owner = typeof metadata.agentId === "string" ? metadata.agentId.trim() : "";
+  if (!owner) return true;
+  return owner === agentId || owner === "main";
+}
+
 function resolveHostMemoryWorkspaceDir(api: OpenClawPluginApi): string {
   const configRecord = (api.config ?? {}) as Record<string, unknown>;
   const configured = typeof configRecord.workspaceDir === "string"
@@ -1461,7 +1473,7 @@ async function listMarkdownFilesRecursive(rootDir: string): Promise<string[]> {
   while (stack.length > 0) {
     const current = stack.pop();
     if (!current) continue;
-    let entries: Awaited<ReturnType<typeof readdir>> = [];
+    let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }> = [];
     try {
       entries = await readdir(current, { withFileTypes: true });
     } catch {
@@ -1629,7 +1641,9 @@ const scopeRecallOpenClawPlugin = {
         ? "debug-hash-v1"
         : config.embedding.provider === "local-hash"
           ? "hash-v1"
-          : "text-embedding-3-small";
+          : config.embedding.provider === "minimax"
+            ? "embo-01"
+            : "text-embedding-3-small";
     const embeddingModel = config.embedding.model || defaultEmbeddingModel;
     const vectorDim = getVectorDimensions(embeddingModel, config.embedding.dimensions);
 
@@ -1640,6 +1654,7 @@ const scopeRecallOpenClawPlugin = {
       model: embeddingModel,
       baseURL: config.embedding.baseURL,
       dimensions: config.embedding.dimensions,
+      groupId: config.embedding.groupId,
       omitDimensions: config.embedding.omitDimensions,
       taskQuery: config.embedding.taskQuery,
       taskPassage: config.embedding.taskPassage,
@@ -1887,14 +1902,14 @@ const scopeRecallOpenClawPlugin = {
     }
 
     async function runRecallLifecycle(
-      results: Array<{ entry: { id: string; text: string; category: "preference" | "fact" | "decision" | "entity" | "other"; scope: string; importance: number; timestamp: number; metadata?: string } }>,
+      results: Array<{ entry: { id: string; text: string; category: "preference" | "fact" | "decision" | "entity" | "other" | "reflection"; scope: string; importance: number; timestamp: number; metadata?: string } }>,
       scopeFilter?: string[],
     ): Promise<Map<string, string>> {
       const now = Date.now();
       type LifecycleEntry = {
         id: string;
         text: string;
-        category: "preference" | "fact" | "decision" | "entity" | "other";
+        category: "preference" | "fact" | "decision" | "entity" | "other" | "reflection";
         scope: string;
         importance: number;
         timestamp: number;
@@ -2249,7 +2264,7 @@ const scopeRecallOpenClawPlugin = {
             throw new Error("retrieval aborted");
           }
         };
-        const recallWork = async (): Promise<{ prependContext: string } | undefined> => {
+        const recallWork = async (): Promise<{ prependContext: string; ephemeral?: boolean } | undefined> => {
           throwIfRecallAborted();
           // Determine agent ID and accessible scopes
           const agentId = resolveHookAgentId(ctx?.agentId, (event as any).sessionKey);
@@ -3730,6 +3745,7 @@ export function parsePluginConfig(value: unknown): PluginConfig {
     embedding.provider === "azure-openai" ||
     embedding.provider === "local-hash" ||
     embedding.provider === "local-debug" ||
+    embedding.provider === "minimax" ||
     embedding.provider === "openai-compatible"
       ? embedding.provider
       : undefined;
@@ -3806,7 +3822,9 @@ export function parsePluginConfig(value: unknown): PluginConfig {
           ? embedding.model
           : localEmbeddingProvider
             ? (embeddingProvider === "local-debug" ? "debug-hash-v1" : "hash-v1")
-            : "text-embedding-3-small",
+            : embeddingProvider === "minimax"
+              ? "embo-01"
+              : "text-embedding-3-small",
       baseURL:
         typeof embedding.baseURL === "string"
           ? resolveConfigString(embedding.baseURL)
@@ -3832,6 +3850,10 @@ export function parsePluginConfig(value: unknown): PluginConfig {
       chunking:
         typeof embedding.chunking === "boolean"
           ? embedding.chunking
+          : undefined,
+      groupId:
+        typeof embedding.groupId === "string"
+          ? resolveConfigString(embedding.groupId)
           : undefined,
     },
     dbPath: typeof cfg.dbPath === "string" ? cfg.dbPath : undefined,

@@ -7,7 +7,7 @@
  */
 
 import type { MemoryStore, MemorySearchResult } from "./store.js";
-import type { Embedder } from "./embedder.js";
+import type { TextEmbedder } from "./embedder.js";
 import type { LlmClient } from "./llm-client.js";
 import {
   buildExtractionPrompt,
@@ -51,6 +51,7 @@ import {
 } from "./workspace-boundary.js";
 import { inferAtomicBrandItemPreferenceSlot } from "./preference-slots.js";
 import { batchDedup } from "./batch-dedup.js";
+import { recordConflictReviewRelations } from "./conflict-governance.js";
 
 // ============================================================================
 // Envelope Metadata Stripping
@@ -163,7 +164,7 @@ export class SmartExtractor {
 
   constructor(
     private store: MemoryStore,
-    private embedder: Embedder,
+    private embedder: TextEmbedder,
     private llm: LlmClient,
     private config: SmartExtractorConfig = {},
   ) {
@@ -611,25 +612,9 @@ export class SmartExtractor {
 
       case "contradict":
         if (dedupResult.matchId) {
-          if (
-            TEMPORAL_VERSIONED_CATEGORIES.has(candidate.category) &&
-            dedupResult.contextLabel === "general"
-          ) {
-            await this.handleSupersede(
-              candidate,
-              vector,
-              dedupResult.matchId,
-              sessionKey,
-              targetScope,
-              scopeFilter,
-              admission?.audit,
-            );
-            stats.created++;
-            stats.superseded = (stats.superseded ?? 0) + 1;
-          } else {
-            await this.handleContradict(candidate, vector, dedupResult.matchId, sessionKey, targetScope, scopeFilter, dedupResult.contextLabel, admission?.audit);
-            stats.created++;
-          }
+          await this.handleContradict(candidate, vector, dedupResult.matchId, sessionKey, targetScope, scopeFilter, dedupResult.contextLabel, admission?.audit);
+          stats.created++;
+          stats.contradicted = (stats.contradicted ?? 0) + 1;
         } else {
           await this.storeCandidate(candidate, vector, sessionKey, targetScope, admission?.audit);
           stats.created++;
@@ -1169,13 +1154,16 @@ export class SmartExtractor {
       relations: [{ type: "contradicts", targetId: matchId }],
     }, admissionAudit));
 
-    await this.store.store({
+    const created = await this.store.store({
       text: candidate.abstract,
       vector,
       category: storeCategory,
       scope: targetScope,
       importance: this.getDefaultImportance(candidate.category),
       metadata,
+    });
+    await recordConflictReviewRelations(this.store, created, scopeFilter ?? [targetScope]).catch((err) => {
+      this.log(`scope-recall: smart-extractor: conflict-review marking failed: ${String(err)}`);
     });
 
     this.log(

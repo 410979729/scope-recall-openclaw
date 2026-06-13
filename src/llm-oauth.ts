@@ -74,7 +74,7 @@ const OAUTH_WIRE_REFRESH_FIELD = ["refresh", "_token"].join("");
 
 function createOAuthSession(accessCredential: string, fields: Omit<OAuthSession, "accessToken">): OAuthSession {
   const session = { ...fields } as OAuthSession;
-  (session as Record<string, unknown>)[OAUTH_SESSION_ACCESS_FIELD] = accessCredential;
+  (session as unknown as Record<string, unknown>)[OAUTH_SESSION_ACCESS_FIELD] = accessCredential;
   return session;
 }
 

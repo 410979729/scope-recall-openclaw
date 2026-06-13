@@ -9,7 +9,7 @@
  * automatically when the LLM extraction returns zero memories (feedback loop).
  */
 
-import type { Embedder } from "./embedder.js";
+import type { TextEmbedder } from "./embedder.js";
 
 // ============================================================================
 // Built-in noise prototypes (multilingual)
@@ -70,7 +70,7 @@ export class NoisePrototypeBank {
      * Embed all built-in noise prototypes and cache their vectors.
      * Call once at plugin startup. Safe to call multiple times (no-op after first).
      */
-    async init(embedder: Embedder): Promise<void> {
+    async init(embedder: TextEmbedder): Promise<void> {
         if (this._initialized) return;
 
         for (const text of BUILTIN_NOISE_TEXTS) {

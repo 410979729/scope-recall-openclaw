@@ -107,8 +107,15 @@ OpenClaw now has the first read-only observability slice:
   lifecycle metadata, fact keys, relation hints, and L0/L1/L2 content when
   requested.
 
+2026-06-13 update: OpenClaw now has `memory_govern` as a read-only governance
+candidate scanner and follows the Hermes 1.0.13 conflict-review posture:
+contradictions create review metadata and `contradicts` relations instead of
+automatically superseding or hiding older memories. It also has
+`scripts/migrate-legacy-hygiene.mjs` for dry-run-first, backup-backed SQLite
+hygiene migration of legacy scratch rows and missing durable metadata.
+
 Remaining work in this P1 group: feedback tooling, entity graph lookup,
-operator export/governance flows, and benchmark-style recall checks.
+operator export flows, and benchmark-style recall checks.
 
 ### P1 - Stable Shared-Durable / Local-Scratch Scope Contract
 

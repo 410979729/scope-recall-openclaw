@@ -373,7 +373,7 @@ export class MemoryUpgrader {
     // Step 4: Update the memory entry
     await this.store.update(entry.id, {
       ...(rewriteText ? { text: enriched.l0_abstract } : {}),
-      metadata: stringifySmartMetadata(newMetadata),
+      metadata: stringifySmartMetadata(newMetadata as unknown as Record<string, unknown>),
     });
   }
 }

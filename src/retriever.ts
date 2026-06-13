@@ -4,7 +4,7 @@
  */
 
 import type { MemoryEntry, MemoryStore, MemorySearchResult } from "./store.js";
-import type { Embedder } from "./embedder.js";
+import type { TextEmbedder } from "./embedder.js";
 import {
   AccessTracker,
   computeEffectiveHalfLife,
@@ -367,7 +367,7 @@ export class MemoryRetriever {
 
   constructor(
     private store: MemoryStore,
-    private embedder: Embedder,
+    private embedder: TextEmbedder,
     private config: RetrievalConfig = DEFAULT_RETRIEVAL_CONFIG,
     private decayEngine: DecayEngine | null = null,
   ) { }
@@ -1318,7 +1318,7 @@ export interface RetrieverLifecycleOptions {
 
 export function createRetriever(
   store: MemoryStore,
-  embedder: Embedder,
+  embedder: TextEmbedder,
   config?: Partial<RetrievalConfig>,
   options?: { decayEngine?: DecayEngine | null },
 ): MemoryRetriever {

@@ -26,7 +26,7 @@ export interface MemoryRelation {
   targetId: string;
 }
 
-export type MemoryState = "pending" | "confirmed" | "archived";
+export type MemoryState = "pending" | "confirmed" | "archived" | "rejected";
 export type MemoryLayer = "durable" | "working" | "reflection" | "archive";
 export type MemorySource =
   | "manual"
@@ -101,6 +101,7 @@ function normalizeState(value: unknown): MemoryState {
     case "pending":
     case "confirmed":
     case "archived":
+    case "rejected":
       return value;
     default:
       return "confirmed";
@@ -138,7 +139,7 @@ function deriveDefaultLayer(
   state: MemoryState,
 ): MemoryLayer {
   if (source === "reflection" || source === "session-summary") return "reflection";
-  if (state === "archived") return "archive";
+  if (state === "archived" || state === "rejected") return "archive";
   if (
     memoryCategory === "profile" ||
     memoryCategory === "preferences" ||
@@ -227,9 +228,21 @@ export function deriveFactKey(
 }
 
 export function isMemoryActiveAt(
-  metadata: Pick<SmartMemoryMetadata, "valid_from" | "invalidated_at">,
+  metadata: Pick<SmartMemoryMetadata, "valid_from" | "invalidated_at"> & {
+    state?: unknown;
+    memory_layer?: unknown;
+    lifecycle?: unknown;
+  },
   at = Date.now(),
 ): boolean {
+  const state = String(metadata.state ?? "").trim().toLowerCase();
+  const layer = String(metadata.memory_layer ?? "").trim().toLowerCase();
+  const lifecycle = String(metadata.lifecycle ?? "").trim().toLowerCase();
+  if (state === "archived" || state === "rejected") return false;
+  if (layer === "archive") return false;
+  if (["archived", "obsolete", "rejected", "superseded"].includes(lifecycle)) {
+    return false;
+  }
   if (metadata.valid_from > at) return false;
   return !metadata.invalidated_at || metadata.invalidated_at > at;
 }

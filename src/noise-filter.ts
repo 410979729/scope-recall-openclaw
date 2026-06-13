@@ -43,6 +43,18 @@ const BOILERPLATE_PATTERNS = [
   /^HEARTBEAT/i,
 ];
 
+const OPERATIONAL_TRACE_PATTERNS = [
+  /^Command hints:\s*[\s\S]*?(?:^Files:|^Result:|\|\s*status=)/im,
+  /\|\s*status=(?:completed|failed|running|cancelled)\b/i,
+  /^Result:\s*(?:Command|Task|Exec|Shell|Tool)\b/im,
+  /^(?:Files|Result):\s*[\s\S]*\n(?:Files|Result|Command hints):/im,
+];
+
+const RAW_USER_INSTRUCTION_PATTERNS = [
+  /^(?:去|帮我|你去|现在|继续|再|直接).{0,80}(?:检查|看看|处理|改好|审计|搜索|定位|收口)/,
+  /^(?:检查|审计|搜索|定位|修复|迁移|蒸馏).{0,120}(?:记忆|插件|数据库|授权|服务)/,
+];
+
 // Extractor artifacts from validation prompts / synthetic summaries
 const DIAGNOSTIC_ARTIFACT_PATTERNS = [
   /\bquery\s*->\s*(none|no explicit solution|unknown|not found)\b/i,
@@ -78,6 +90,8 @@ export function isNoise(text: string, options: NoiseFilterOptions = {}): boolean
   if (opts.filterDenials && DENIAL_PATTERNS.some(p => p.test(trimmed))) return true;
   if (opts.filterMetaQuestions && META_QUESTION_PATTERNS.some(p => p.test(trimmed))) return true;
   if (opts.filterBoilerplate && BOILERPLATE_PATTERNS.some(p => p.test(trimmed))) return true;
+  if (OPERATIONAL_TRACE_PATTERNS.some(p => p.test(trimmed))) return true;
+  if (trimmed.length <= 180 && RAW_USER_INSTRUCTION_PATTERNS.some(p => p.test(trimmed))) return true;
   if (DIAGNOSTIC_ARTIFACT_PATTERNS.some(p => p.test(trimmed))) return true;
 
   return false;

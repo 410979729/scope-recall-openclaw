@@ -1,6 +1,6 @@
 {
   "name": "scope-recall-openclaw",
-  "version": "1.0.15",
+  "version": "1.0.17",
   "description": "Scoped long-term memory for OpenClaw with SQLite truth, hybrid recall, rebuildable vectors, safe capture, and native-free fallbacks",
   "type": "module",
   "main": "dist/index.js",
@@ -16,12 +16,17 @@
     "docs/",
     "index.ts",
     "openclaw.plugin.json",
+    "tsconfig.json",
+    "scripts/release-gate.mjs",
+    "scripts/migrate-legacy-hygiene.mjs",
     "scripts/smoke-vector-repair.mjs",
     "skills/",
-    "src/"
+    "src/",
+    "tests/"
   ],
   "scripts": {
     "test": "node --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit",
     "smoke:vector-repair": "node scripts/smoke-vector-repair.mjs",
     "release:gate": "node scripts/release-gate.mjs"
   },
@@ -85,5 +90,8 @@
       "publishToNpm": true,
       "bundleRuntimeDependencies": false
     }
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
   }
 }

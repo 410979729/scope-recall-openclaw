@@ -2,12 +2,13 @@
   "id": "scope-recall-openclaw",
   "name": "Scope Recall for OpenClaw",
   "description": "Scoped long-term memory for OpenClaw with SQLite truth, hybrid recall, rebuildable vectors, safe capture, and native-free fallbacks",
-  "version": "1.0.15",
+  "version": "1.0.17",
   "kind": "memory",
   "contracts": {
     "tools": [
       "memory_recall",
       "memory_store",
+      "memory_store_secret_index",
       "memory_forget",
       "memory_update",
       "memory_stats",
@@ -15,6 +16,7 @@
       "memory_list",
       "memory_context",
       "memory_inspect",
+      "memory_govern",
       "memory_promote",
       "memory_archive",
       "memory_compact",
@@ -23,6 +25,176 @@
       "self_improvement_extract_skill",
       "self_improvement_review"
     ]
+  },
+  "toolMetadata": {
+    "memory_stats": {
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.scope-recall-openclaw.config",
+          "mode": {
+            "path": "enableManagementTools",
+            "default": "false",
+            "allowed": [
+              "true"
+            ]
+          }
+        }
+      ]
+    },
+    "memory_debug": {
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.scope-recall-openclaw.config",
+          "mode": {
+            "path": "enableManagementTools",
+            "default": "false",
+            "allowed": [
+              "true"
+            ]
+          }
+        }
+      ]
+    },
+    "memory_list": {
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.scope-recall-openclaw.config",
+          "mode": {
+            "path": "enableManagementTools",
+            "default": "false",
+            "allowed": [
+              "true"
+            ]
+          }
+        }
+      ]
+    },
+    "memory_context": {
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.scope-recall-openclaw.config",
+          "mode": {
+            "path": "enableManagementTools",
+            "default": "false",
+            "allowed": [
+              "true"
+            ]
+          }
+        }
+      ]
+    },
+    "memory_inspect": {
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.scope-recall-openclaw.config",
+          "mode": {
+            "path": "enableManagementTools",
+            "default": "false",
+            "allowed": [
+              "true"
+            ]
+          }
+        }
+      ]
+    },
+    "memory_govern": {
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.scope-recall-openclaw.config",
+          "mode": {
+            "path": "enableManagementTools",
+            "default": "false",
+            "allowed": [
+              "true"
+            ]
+          }
+        }
+      ]
+    },
+    "memory_promote": {
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.scope-recall-openclaw.config",
+          "mode": {
+            "path": "enableManagementTools",
+            "default": "false",
+            "allowed": [
+              "true"
+            ]
+          }
+        }
+      ]
+    },
+    "memory_archive": {
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.scope-recall-openclaw.config",
+          "mode": {
+            "path": "enableManagementTools",
+            "default": "false",
+            "allowed": [
+              "true"
+            ]
+          }
+        }
+      ]
+    },
+    "memory_compact": {
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.scope-recall-openclaw.config",
+          "mode": {
+            "path": "enableManagementTools",
+            "default": "false",
+            "allowed": [
+              "true"
+            ]
+          }
+        }
+      ]
+    },
+    "memory_explain_rank": {
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.scope-recall-openclaw.config",
+          "mode": {
+            "path": "enableManagementTools",
+            "default": "false",
+            "allowed": [
+              "true"
+            ]
+          }
+        }
+      ]
+    },
+    "self_improvement_extract_skill": {
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.scope-recall-openclaw.config",
+          "mode": {
+            "path": "enableManagementTools",
+            "default": "false",
+            "allowed": [
+              "true"
+            ]
+          }
+        }
+      ]
+    },
+    "self_improvement_review": {
+      "configSignals": [
+        {
+          "rootPath": "plugins.entries.scope-recall-openclaw.config",
+          "mode": {
+            "path": "enableManagementTools",
+            "default": "false",
+            "allowed": [
+              "true"
+            ]
+          }
+        }
+      ]
+    }
   },
   "configSchema": {
     "type": "object",
@@ -38,7 +210,8 @@
               "openai-compatible",
               "azure-openai",
               "local-hash",
-              "local-debug"
+              "local-debug",
+              "minimax"
             ]
           },
           "apiKey": {
@@ -63,6 +236,10 @@
           },
           "baseURL": {
             "type": "string"
+          },
+          "groupId": {
+            "type": "string",
+            "description": "Optional MiniMax GroupId for accounts that require it"
           },
           "dimensions": {
             "type": "integer",

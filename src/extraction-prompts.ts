@@ -31,7 +31,8 @@ ${conversationText}
 - System/platform metadata: message IDs, sender IDs, timestamps, channel info, JSON envelopes (e.g. "System: [timestamp] Feishu...", "message_id", "sender_id", "ou_xxx") — these are infrastructure noise, NEVER extract them
 - Temporary information: One-time questions or conversations
 - Vague information: "User has questions about a feature" (no specific details)
-- Tool output, error logs, or boilerplate
+- Tool output, error logs, execution wrappers, or boilerplate, including "Command hints:", "Files:", "Result:", and "| status=completed" blocks
+- Raw credentials or access material: passwords, tokens, API keys, usernames paired with passwords, remote login strings. Preserve only the durable procedure or security lesson, NEVER the secret value.
 - Recall queries / meta-questions: "Do you remember X?", "你还记得X吗?", "你知道我喜欢什么吗" — these are retrieval requests, NOT new information to store
 - Degraded or incomplete references: If the user mentions something vaguely ("that thing I said"), do NOT invent details or create a hollow memory
 

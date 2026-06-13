@@ -38,6 +38,7 @@ export interface SqlTruthFtsReport {
   missingFtsRows: number;
   duplicateFtsExtraRows: number;
   healthy: boolean;
+  reason?: string;
 }
 
 const WORD_RE = /[a-zA-Z0-9]{2,}|[\u4e00-\u9fff]{2,}/g;

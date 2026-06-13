@@ -91,13 +91,14 @@ class EmbeddingCache {
 // ============================================================================
 
 export interface EmbeddingConfig {
-  provider: "openai-compatible" | "azure-openai" | "local-hash" | "local-debug";
+  provider: "openai-compatible" | "azure-openai" | "local-hash" | "local-debug" | "minimax";
   apiVersion?: string;
   /** Single API key or array of keys for round-robin rotation with failover. */
   apiKey?: string | string[];
   model: string;
   baseURL?: string;
   dimensions?: number;
+  groupId?: string;
 
   /** Optional task type for query embeddings (e.g. "retrieval.query") */
   taskQuery?: string;
@@ -110,6 +111,15 @@ export interface EmbeddingConfig {
   omitDimensions?: boolean;
   /** Enable automatic chunking for documents exceeding context limits (default: true) */
   chunking?: boolean;
+}
+
+export interface TextEmbedder {
+  readonly dimensions: number;
+  embed(text: string, signal?: AbortSignal): Promise<number[]>;
+  embedQuery(text: string, signal?: AbortSignal): Promise<number[]>;
+  embedPassage(text: string, signal?: AbortSignal): Promise<number[]>;
+  embedBatchPassage?(texts: string[], signal?: AbortSignal): Promise<number[][]>;
+  test?(): Promise<{ success: boolean; error?: string; dimensions?: number }>;
 }
 
 type EmbeddingProviderProfile =
@@ -152,6 +162,8 @@ const EMBEDDING_DIMENSIONS: Record<string, number> = {
   "BAAI/bge-m3": 1024,
   "all-MiniLM-L6-v2": 384,
   "all-mpnet-base-v2": 512,
+  "embo-01": 1536,
+  "minimax-embedding": 1536,
 
   // Jina v5
   "jina-embeddings-v5-text-small": 1024,
@@ -1123,17 +1135,173 @@ export class Embedder {
   }
 }
 
+export class MiniMaxEmbedder {
+  public readonly provider = "minimax";
+  public readonly dimensions: number;
+  private readonly _cache: EmbeddingCache;
+  private readonly _model: string;
+  private readonly _baseURL: string;
+  private readonly _apiKeys: string[];
+  private readonly _groupId?: string;
+  private _keyIndex = 0;
+
+  constructor(config: EmbeddingConfig) {
+    if (!config.apiKey) {
+      throw new Error("embedding.apiKey is required for MiniMax embeddings");
+    }
+    const apiKeys = Array.isArray(config.apiKey) ? config.apiKey : [config.apiKey];
+    this._apiKeys = apiKeys.map((key) => key.trim()).filter(Boolean);
+    if (this._apiKeys.length === 0) {
+      throw new Error("embedding.apiKey must contain at least one non-empty key for MiniMax embeddings");
+    }
+    this._model = config.model || "embo-01";
+    this._baseURL = (config.baseURL || "https://api.minimaxi.com/v1").replace(/\/$/, "");
+    this._groupId = config.groupId;
+    this.dimensions = getVectorDimensions(this._model, config.dimensions);
+    this._cache = new EmbeddingCache(256, 30);
+  }
+
+  private nextKey(): string {
+    const key = this._apiKeys[this._keyIndex % this._apiKeys.length];
+    this._keyIndex = (this._keyIndex + 1) % this._apiKeys.length;
+    return key;
+  }
+
+  private isRateLimitStatus(status: number): boolean {
+    return status === 429 || status === 503;
+  }
+
+  private async request(texts: string[], type: "db" | "query", signal?: AbortSignal): Promise<number[][]> {
+    const endpoint = new URL(`${this._baseURL}/embeddings`);
+    if (this._groupId) endpoint.searchParams.set("GroupId", this._groupId);
+    const body = JSON.stringify({ model: this._model, texts, type });
+    let lastError: Error | undefined;
+
+    for (let attempt = 0; attempt < this._apiKeys.length; attempt++) {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.nextKey()}`,
+        },
+        body,
+        signal,
+      }).catch((error) => {
+        throw error instanceof Error ? error : new Error(String(error));
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        lastError = new Error(`MiniMax embedding failed: ${response.status} ${response.statusText} ${text.slice(0, 300)}`.trim());
+        if (this.isRateLimitStatus(response.status) && attempt < this._apiKeys.length - 1) continue;
+        throw lastError;
+      }
+
+      const data = await response.json() as { vectors?: unknown; data?: unknown };
+      const vectors = Array.isArray(data.vectors)
+        ? data.vectors
+        : Array.isArray((data.data as { vectors?: unknown } | undefined)?.vectors)
+          ? (data.data as { vectors: unknown[] }).vectors
+          : undefined;
+      if (!vectors) {
+        throw new Error("MiniMax embedding response did not include vectors");
+      }
+      return vectors.map((vector) => {
+        if (!Array.isArray(vector)) throw new Error("MiniMax embedding vector is not an array");
+        const values = vector.map((value) => Number(value));
+        if (values.length !== this.dimensions) {
+          throw new Error(`Embedding dimension mismatch: expected ${this.dimensions}, got ${values.length}`);
+        }
+        return values;
+      });
+    }
+
+    throw lastError || new Error("MiniMax embedding failed");
+  }
+
+  private withTimeout<T>(promiseFactory: (signal: AbortSignal) => Promise<T>, externalSignal?: AbortSignal): Promise<T> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), EMBED_TIMEOUT_MS);
+    let unsubscribe: (() => void) | undefined;
+    if (externalSignal) {
+      if (externalSignal.aborted) controller.abort();
+      const onAbort = () => controller.abort();
+      externalSignal.addEventListener("abort", onAbort, { once: true });
+      unsubscribe = () => externalSignal.removeEventListener("abort", onAbort);
+    }
+    return promiseFactory(controller.signal).finally(() => {
+      clearTimeout(timeoutId);
+      unsubscribe?.();
+    });
+  }
+
+  async embed(text: string): Promise<number[]> {
+    return this.embedPassage(text);
+  }
+
+  async embedQuery(text: string, signal?: AbortSignal): Promise<number[]> {
+    const cached = this._cache.get(text, "query");
+    if (cached) return cached;
+    const [vector] = await this.withTimeout((sig) => this.request([text], "query", sig), signal);
+    this._cache.set(text, "query", vector);
+    return vector;
+  }
+
+  async embedPassage(text: string, signal?: AbortSignal): Promise<number[]> {
+    const cached = this._cache.get(text, "db");
+    if (cached) return cached;
+    const [vector] = await this.withTimeout((sig) => this.request([text], "db", sig), signal);
+    this._cache.set(text, "db", vector);
+    return vector;
+  }
+
+  async embedBatch(texts: string[]): Promise<number[][]> {
+    return this.embedBatchPassage(texts);
+  }
+
+  async embedBatchQuery(texts: string[], signal?: AbortSignal): Promise<number[][]> {
+    return this.withTimeout((sig) => this.request(texts, "query", sig), signal);
+  }
+
+  async embedBatchPassage(texts: string[], signal?: AbortSignal): Promise<number[][]> {
+    return this.withTimeout((sig) => this.request(texts, "db", sig), signal);
+  }
+
+  async test(): Promise<{ success: boolean; error?: string; dimensions?: number }> {
+    try {
+      const testEmbedding = await this.embedPassage("test");
+      return { success: true, dimensions: testEmbedding.length };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  get model(): string {
+    return this._model;
+  }
+
+  get cacheStats() {
+    return {
+      ...this._cache.stats,
+      keyCount: this._apiKeys.length,
+    };
+  }
+}
+
 // ============================================================================
 // Factory Function
 // ============================================================================
 
-export function createEmbedder(config: EmbeddingConfig): Embedder | LocalHashEmbedder {
+export function createEmbedder(config: EmbeddingConfig): Embedder | LocalHashEmbedder | MiniMaxEmbedder {
   if (config.provider === "local-hash" || config.provider === "local-debug") {
     return new LocalHashEmbedder({
       provider: config.provider,
       model: config.model,
       dimensions: config.dimensions,
     });
+  }
+  if (config.provider === "minimax") {
+    return new MiniMaxEmbedder(config);
   }
   return new Embedder(config);
 }
