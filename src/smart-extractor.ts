@@ -1311,9 +1311,13 @@ export class SmartExtractor {
         session_key: sessionKey,
         target_scope: targetScope,
         scope_filter: scopeFilter,
-        candidate,
+        candidate: {
+          ...candidate,
+          abstract: redactAuditText(candidate.abstract),
+          content: redactAuditText(candidate.content),
+        },
         audit,
-        conversation_excerpt: conversationText.slice(-1200),
+        conversation_excerpt: redactAuditText(conversationText.slice(-1200)),
       });
     } catch (err) {
       this.log(
@@ -1321,6 +1325,11 @@ export class SmartExtractor {
       );
     }
   }
+}
+
+function redactAuditText(value: string): string {
+  const length = typeof value === "string" ? value.length : 0;
+  return `[redacted conversation-derived text; chars=${length}]`;
 }
 
 // ============================================================================

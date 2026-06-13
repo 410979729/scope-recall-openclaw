@@ -143,7 +143,7 @@ export const ADMISSION_CONTROL_PRESETS: Record<AdmissionControlPreset, Admission
     },
     typePriors: DEFAULT_TYPE_PRIORS,
     auditMetadata: true,
-    persistRejectedAudits: true,
+    persistRejectedAudits: false,
     rejectedAuditFilePath: undefined,
   },
   conservative: {
@@ -172,7 +172,7 @@ export const ADMISSION_CONTROL_PRESETS: Record<AdmissionControlPreset, Admission
       patterns: 0.8,
     },
     auditMetadata: true,
-    persistRejectedAudits: true,
+    persistRejectedAudits: false,
     rejectedAuditFilePath: undefined,
   },
   "high-recall": {
@@ -201,7 +201,7 @@ export const ADMISSION_CONTROL_PRESETS: Record<AdmissionControlPreset, Admission
       patterns: 0.88,
     },
     auditMetadata: true,
-    persistRejectedAudits: true,
+    persistRejectedAudits: false,
     rejectedAuditFilePath: undefined,
   },
 };

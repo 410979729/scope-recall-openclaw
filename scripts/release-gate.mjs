@@ -53,4 +53,5 @@ for (const file of packageJson.files ?? []) {
 run("npm", ["test"]);
 run("npm", ["run", "typecheck"]);
 run("npm", ["run", "smoke:vector-repair"]);
+run("npm", ["run", "build"]);
 run("npm", ["pack", "--dry-run"]);

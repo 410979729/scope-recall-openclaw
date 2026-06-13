@@ -293,7 +293,6 @@ function buildInvariantCandidates(
   const itemCandidates = itemRows
     .filter(({ metadata }) => metadata.itemKind === "invariant")
     .flatMap(({ entry, metadata }) => {
-      const lines = sanitizeReflectionSliceLines([entry.text]);
       const safeLines = sanitizeInjectableReflectionLines([entry.text]);
       if (safeLines.length === 0) return [];
 
@@ -335,7 +334,6 @@ function buildDerivedCandidates(
   const itemCandidates = itemRows
     .filter(({ metadata }) => metadata.itemKind === "derived")
     .flatMap(({ entry, metadata }) => {
-      const lines = sanitizeReflectionSliceLines([entry.text]);
       const safeLines = sanitizeInjectableReflectionLines([entry.text]);
       if (safeLines.length === 0) return [];
 

@@ -2,7 +2,7 @@
   "id": "scope-recall-openclaw",
   "name": "Scope Recall for OpenClaw",
   "description": "Scoped long-term memory for OpenClaw with SQLite truth, hybrid recall, rebuildable vectors, safe capture, and native-free fallbacks",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "kind": "memory",
   "contracts": {
     "tools": [
@@ -229,7 +229,7 @@
                 "minItems": 1
               }
             ],
-            "description": "Single API key or array of keys for hosted embedding providers. Leave unset only for local-hash/local-debug."
+            "description": "Single API key or array of keys for hosted embedding providers. Hosted providers receive memory text for embedding; use local-hash/local-debug or a local endpoint for sensitive deployments."
           },
           "model": {
             "type": "string"
@@ -311,7 +311,8 @@
       },
       "autoRecall": {
         "type": "boolean",
-        "default": false
+        "default": false,
+        "description": "Opt in to automatic insertion of stored memories into future model context. Default is off because recalled memory can expose prior sensitive context."
       },
       "autoRecallMinLength": {
         "type": "integer",
@@ -441,7 +442,8 @@
           },
           "persistRejectedAudits": {
             "type": "boolean",
-            "default": true
+            "default": false,
+            "description": "Opt in to durable rejected-admission audit logs. Rejected candidates may include conversation-derived content; default is off."
           },
           "rejectedAuditFilePath": {
             "type": "string",
@@ -769,7 +771,8 @@
         "properties": {
           "enabled": {
             "type": "boolean",
-            "default": true
+            "default": false,
+            "description": "Opt in to workspace self-improvement reminders and .learnings file writes. Default is off to avoid implicit workspace mutation."
           },
           "beforeResetNote": {
             "type": "boolean",
@@ -1060,14 +1063,14 @@
     "embedding.provider": {
       "label": "Embedding Provider",
       "placeholder": "openai-compatible",
-      "help": "Use openai-compatible or azure-openai for production semantic embeddings. Use local-hash only for bootstrap, tests, or no-key availability.",
+      "help": "Hosted embedding providers receive memory text. Use local-hash/local-debug or a local endpoint for sensitive deployments.",
       "advanced": true
     },
     "embedding.apiKey": {
       "label": "API Key(s)",
       "sensitive": true,
       "placeholder": "sk-proj-... or [\"key1\", \"key2\"] for rotation",
-      "help": "Single API key or array of keys for hosted providers with automatic failover on rate limits. Leave unset only for local-hash/local-debug."
+      "help": "Single API key or array of keys for hosted providers with automatic failover on rate limits. Hosted providers receive memory text; leave unset only for local-hash/local-debug."
     },
     "embedding.model": {
       "label": "Embedding Model",
@@ -1193,7 +1196,7 @@
     },
     "admissionControl.persistRejectedAudits": {
       "label": "Persist Reject Audits",
-      "help": "Write rejected admission decisions to a JSONL audit log for later review.",
+      "help": "Opt in to writing rejected admission decisions to JSONL. Rejected candidates may include conversation-derived content.",
       "advanced": true
     },
     "admissionControl.rejectedAuditFilePath": {
@@ -1227,7 +1230,7 @@
     },
     "autoRecall": {
       "label": "Auto-Recall",
-      "help": "Inject relevant memories into the model context before a turn."
+      "help": "Opt in to injecting stored memories into model context. Default is off to avoid exposing prior sensitive context."
     },
     "autoRecallMinLength": {
       "label": "Auto-Recall Min Length",
@@ -1410,7 +1413,7 @@
     },
     "selfImprovement.enabled": {
       "label": "Self-Improvement",
-      "help": "Enable self-improvement reminder and governance tools"
+      "help": "Opt in to self-improvement reminders and .learnings workspace writes. Default is off."
     },
     "selfImprovement.beforeResetNote": {
       "label": "Reset Reminder Note",

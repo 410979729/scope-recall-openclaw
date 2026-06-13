@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.18
+
+- Publish a runtime-focused package artifact: the npm pack now ships compiled
+  `dist/` output and public docs/metadata, while omitting test, release, and
+  skill-authoring helper files that are not needed at runtime.
+- Make workspace self-improvement reminders and `.learnings` writes opt-in
+  instead of default-on.
+- Make rejected-admission audit persistence opt-in and redact
+  conversation-derived text in rejected-audit records.
+- Add stronger config disclosures for hosted embedding providers and auto-recall
+  prompt injection.
+- Rebuild `dist/` from source and remove the jiti runtime wrapper.
+
 ## 1.0.17
 
 - Restored fail-closed agent context handling for all memory tools; missing OpenClaw runtime identity no longer falls back to `agent:main`.

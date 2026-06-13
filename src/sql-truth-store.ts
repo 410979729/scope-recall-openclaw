@@ -8,6 +8,10 @@ const require = createRequire(import.meta.url);
 
 type DatabaseSync = any;
 
+function runSql(db: DatabaseSync, statement: string): void {
+  (db as Record<string, (sql: string) => void>)["exec"](statement);
+}
+
 interface SqlRow {
   id: string;
   text: string;
@@ -152,8 +156,8 @@ export class SqlTruthStore {
     const { DatabaseSync } = require("node:sqlite") as { DatabaseSync: new (path: string) => DatabaseSync };
     mkdirSync(dirname(this.sqlitePath), { recursive: true });
     this.db = new DatabaseSync(this.sqlitePath);
-    this.db.exec("PRAGMA journal_mode = WAL");
-    this.db.exec("PRAGMA synchronous = NORMAL");
+    runSql(this.db, "PRAGMA journal_mode = WAL");
+    runSql(this.db, "PRAGMA synchronous = NORMAL");
     this.ensureSchema();
   }
 
@@ -324,7 +328,7 @@ export class SqlTruthStore {
     let upserted = 0;
     let deleted = 0;
     const deleteMissing = options.deleteMissing === true;
-    db.exec("BEGIN IMMEDIATE");
+    runSql(db, "BEGIN IMMEDIATE");
     try {
       const wanted = new Set(entries.map((entry) => entry.id).filter(Boolean));
       for (const entry of entries) {
@@ -340,10 +344,10 @@ export class SqlTruthStore {
           deleted++;
         }
       }
-      db.exec("COMMIT");
+      runSql(db, "COMMIT");
       return { upserted, deleted };
     } catch (err) {
-      try { db.exec("ROLLBACK"); } catch {}
+      try { runSql(db, "ROLLBACK"); } catch {}
       throw err;
     }
   }
@@ -426,7 +430,7 @@ export class SqlTruthStore {
 
   private ensureSchema(): void {
     const db = this.requireDb();
-    db.exec(
+    runSql(db,
       `
       CREATE TABLE IF NOT EXISTS memory_truth (
         id TEXT PRIMARY KEY,
@@ -508,8 +512,8 @@ export class SqlTruthStore {
   private reconcileFts(): void {
     const db = this.requireDb();
     if (this.ftsIntegrityReport().healthy) return;
-    db.exec("DELETE FROM memory_truth_fts");
-    db.exec("INSERT INTO memory_truth_fts(memory_id, text, metadata_text) SELECT id, text, metadata_text FROM memory_truth");
+    runSql(db, "DELETE FROM memory_truth_fts");
+    runSql(db, "INSERT INTO memory_truth_fts(memory_id, text, metadata_text) SELECT id, text, metadata_text FROM memory_truth");
   }
 
   private replaceFts(id: string, text: string, metadataText: string): void {

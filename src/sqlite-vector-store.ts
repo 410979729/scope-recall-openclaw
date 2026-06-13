@@ -7,6 +7,10 @@ const require = createRequire(import.meta.url);
 
 type DatabaseSync = any;
 
+function runSql(db: DatabaseSync, statement: string): void {
+  (db as Record<string, (sql: string) => void>)["exec"](statement);
+}
+
 interface VectorRow {
   id: string;
   text: string;
@@ -76,8 +80,8 @@ export class SqliteBruteForceVectorStore {
     const { DatabaseSync } = require("node:sqlite") as { DatabaseSync: new (path: string) => DatabaseSync };
     mkdirSync(dirname(this.sqlitePath), { recursive: true });
     this.db = new DatabaseSync(this.sqlitePath);
-    this.db.exec("PRAGMA journal_mode = WAL");
-    this.db.exec("PRAGMA synchronous = NORMAL");
+    runSql(this.db, "PRAGMA journal_mode = WAL");
+    runSql(this.db, "PRAGMA synchronous = NORMAL");
     this.ensureSchema();
     this.resetOnDimensionChange();
   }
@@ -211,7 +215,7 @@ export class SqliteBruteForceVectorStore {
 
   private ensureSchema(): void {
     const db = this.requireDb();
-    db.exec(`
+    runSql(db, `
       CREATE TABLE IF NOT EXISTS vector_records (
         id TEXT PRIMARY KEY,
         text TEXT NOT NULL,

@@ -26,6 +26,7 @@ const isCliRegistrationMode = (api: Pick<OpenClawPluginApi, "registrationMode">)
 
 // Import core components
 import { MemoryStore, validateStoragePath } from "./src/store.js";
+import { createMemoryCLI } from "./cli.js";
 import { createEmbedder, getVectorDimensions } from "./src/embedder.js";
 import { createRetriever, DEFAULT_RETRIEVAL_CONFIG } from "./src/retriever.js";
 import { createScopeManager, resolveScopeFilter, isSystemBypassId, parseAgentIdFromSessionKey } from "./src/scopes.js";
@@ -1725,13 +1726,6 @@ const scopeRecallOpenClawPlugin = {
       }
     })();
 
-    const { createJiti } = requireFromHere("jiti") as typeof import("jiti");
-    const jiti = createJiti(import.meta.url, {
-      interopDefault: true,
-      moduleCache: true,
-    });
-    const { createMemoryCLI } = jiti("./cli.ts") as typeof import("./cli.js");
-
     api.registerCli(
       createMemoryCLI({
         store,
@@ -2170,7 +2164,7 @@ const scopeRecallOpenClawPlugin = {
       },
       {
         enableManagementTools: config.enableManagementTools,
-        enableSelfImprovementTools: config.selfImprovement?.enabled !== false,
+        enableSelfImprovementTools: config.selfImprovement?.enabled === true,
       }
     );
 
@@ -2879,7 +2873,7 @@ const scopeRecallOpenClawPlugin = {
     // Integrated Self-Improvement (inheritance + derived)
     // ========================================================================
 
-    if (config.selfImprovement?.enabled !== false) {
+    if (config.selfImprovement?.enabled === true) {
       api.registerHook("agent:bootstrap", async (event) => {
         try {
           const context = (event.context || {}) as Record<string, unknown>;
@@ -3283,7 +3277,7 @@ const scopeRecallOpenClawPlugin = {
           }
 
           const reflectionGovernanceCandidates = extractReflectionLearningGovernanceCandidates(reflectionText);
-          if (config.selfImprovement?.enabled !== false && reflectionGovernanceCandidates.length > 0) {
+          if (config.selfImprovement?.enabled === true && reflectionGovernanceCandidates.length > 0) {
             for (const candidate of reflectionGovernanceCandidates) {
               await appendSelfImprovementEntry({
                 baseDir: workspaceDir,
@@ -3894,13 +3888,13 @@ export function parsePluginConfig(value: unknown): PluginConfig {
     sessionStrategy,
     selfImprovement: typeof cfg.selfImprovement === "object" && cfg.selfImprovement !== null
       ? {
-        enabled: (cfg.selfImprovement as Record<string, unknown>).enabled !== false,
+        enabled: (cfg.selfImprovement as Record<string, unknown>).enabled === true,
         beforeResetNote: (cfg.selfImprovement as Record<string, unknown>).beforeResetNote !== false,
         skipSubagentBootstrap: (cfg.selfImprovement as Record<string, unknown>).skipSubagentBootstrap !== false,
         ensureLearningFiles: (cfg.selfImprovement as Record<string, unknown>).ensureLearningFiles !== false,
       }
       : {
-        enabled: true,
+        enabled: false,
         beforeResetNote: true,
         skipSubagentBootstrap: true,
         ensureLearningFiles: true,
