@@ -1,6 +1,6 @@
 {
   "name": "scope-recall-openclaw",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "description": "Scoped long-term memory for OpenClaw with SQLite truth, hybrid recall, rebuildable vectors, safe capture, and native-free fallbacks",
   "type": "module",
   "main": "dist/index.js",

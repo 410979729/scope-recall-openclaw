@@ -4,6 +4,7 @@
 
 import type * as LanceDB from "@lancedb/lancedb";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import {
   existsSync,
   accessSync,
@@ -106,6 +107,7 @@ export interface VectorCompanionDriftReport {
 
 let lancedbImportPromise: Promise<typeof import("@lancedb/lancedb")> | null =
   null;
+const require = createRequire(import.meta.url);
 
 // =========================================================================
 // Cross-Process File Lock (proper-lockfile)

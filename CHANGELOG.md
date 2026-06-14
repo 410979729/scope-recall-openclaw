@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.19
+
+- Restore the ESM-safe `createRequire(import.meta.url)` shim used by the
+  LanceDB loader so compiled runtime CLI commands can load `@lancedb/lancedb`
+  without `require is not defined`.
+
 ## 1.0.18
 
 - Publish a runtime-focused package artifact: the npm pack now ships compiled

@@ -2,6 +2,7 @@
  * LanceDB Storage Layer with Multi-Scope Support
  */
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import { existsSync, accessSync, constants, mkdirSync, realpathSync, lstatSync, } from "node:fs";
 import { dirname, join } from "node:path";
 import { buildSmartMetadata, isMemoryActiveAt, parseSmartMetadata, stringifySmartMetadata } from "./smart-metadata.js";
@@ -11,6 +12,7 @@ import { SqliteBruteForceVectorStore } from "./sqlite-vector-store.js";
 // LanceDB Dynamic Import
 // ============================================================================
 let lancedbImportPromise = null;
+const require = createRequire(import.meta.url);
 // =========================================================================
 // Cross-Process File Lock (proper-lockfile)
 // =========================================================================
