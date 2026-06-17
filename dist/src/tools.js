@@ -7,7 +7,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isNoise } from "./noise-filter.js";
-import { evaluateCaptureSafety } from "./capture-safety.js";
+import { evaluateCaptureSafety, sanitizeCaptureText } from "./capture-safety.js";
 import { isSystemBypassId, resolveScopeFilter, parseAgentIdFromSessionKey } from "./scopes.js";
 import { appendRelation, buildSmartMetadata, deriveFactKey, parseSmartMetadata, stringifySmartMetadata, } from "./smart-metadata.js";
 import { TEMPORAL_VERSIONED_CATEGORIES } from "./memory-categories.js";
@@ -652,8 +652,10 @@ export function registerMemoryStoreTool(api, context) {
                             },
                         };
                     }
+                    // Sanitize attachment markers before storage
+                    const sanitizedText = sanitizeCaptureText(enrichedText) || enrichedText;
                     // Reject noise before wasting an embedding API call
-                    if (isNoise(enrichedText)) {
+                    if (isNoise(sanitizedText)) {
                         return {
                             content: [
                                 {
@@ -661,10 +663,10 @@ export function registerMemoryStoreTool(api, context) {
                                     text: `Skipped: text detected as noise (greeting, boilerplate, or meta-question)`,
                                 },
                             ],
-                            details: { action: "noise_filtered", text: enrichedText.slice(0, 60) },
+                            details: { action: "noise_filtered", text: sanitizedText.slice(0, 60) },
                         };
                     }
-                    if (isUserMdExclusiveMemory({ text: enrichedText }, runtimeContext.workspaceBoundary)) {
+                    if (isUserMdExclusiveMemory({ text: sanitizedText }, runtimeContext.workspaceBoundary)) {
                         return {
                             content: [
                                 {
@@ -679,7 +681,7 @@ export function registerMemoryStoreTool(api, context) {
                         };
                     }
                     const safeImportance = clamp01(importance, 0.7);
-                    const vector = await runtimeContext.embedder.embedPassage(enrichedText);
+                    const vector = await runtimeContext.embedder.embedPassage(sanitizedText);
                     // Check for duplicates using raw vector similarity (bypasses importance/recency weighting)
                     // Fail-open by design: dedup must never block a legitimate memory write.
                     // excludeInactive: superseded historical records must not block new writes.
@@ -710,43 +712,43 @@ export function registerMemoryStoreTool(api, context) {
                         };
                     }
                     const entry = await runtimeContext.store.store({
-                        text: enrichedText,
+                        text: sanitizedText,
                         vector,
                         importance: safeImportance,
                         category: category,
                         scope: targetScope,
                         metadata: stringifySmartMetadata(mergeArtifactMetadata(buildSmartMetadata({
-                            text: enrichedText,
+                            text: sanitizedText,
                             category: category,
                             importance: safeImportance,
                         }, {
-                            l0_abstract: enrichedText,
-                            l1_overview: `- ${enrichedText}`,
-                            l2_content: enrichedText,
+                            l0_abstract: sanitizedText,
+                            l1_overview: `- ${sanitizedText}`,
+                            l2_content: sanitizedText,
                             source: "manual",
                             state: "confirmed",
                             memory_layer: deriveManualMemoryLayer(category),
                             last_confirmed_use_at: Date.now(),
                             bad_recall_count: 0,
                             suppressed_until_turn: 0,
-                        }), enrichedText)),
+                        }), sanitizedText)),
                     });
                     let conflictReview;
                     try {
                         conflictReview = await recordConflictReviewRelations(runtimeContext.store, entry, [targetScope]);
                     }
                     catch (err) {
-                        console.warn(`scope-recall-openclaw: conflict-review marking failed: ${String(err)}`);
+                        console.warn(`scope-recall-openclaw: conflict-review marking fails: ${String(err)}`);
                     }
                     // Dual-write to Markdown mirror if enabled
                     if (context.mdMirror) {
-                        await context.mdMirror({ text: enrichedText, category: category, scope: targetScope, timestamp: entry.timestamp }, { source: "memory_store", agentId });
+                        await context.mdMirror({ text: sanitizedText, category: category, scope: targetScope, timestamp: entry.timestamp }, { source: "memory_store", agentId });
                     }
                     return {
                         content: [
                             {
                                 type: "text",
-                                text: `Stored: "${enrichedText.slice(0, 100)}${enrichedText.length > 100 ? "..." : ""}" in scope '${targetScope}'`,
+                                text: `Stored: "${sanitizedText.slice(0, 100)}${sanitizedText.length > 100 ? "..." : ""}" in scope '${targetScope}'`,
                             },
                         ],
                         details: {

@@ -4,7 +4,8 @@ export type CaptureSafetyReason =
   | "system-wrapper"
   | "context-compaction"
   | "operational-trace"
-  | "secret";
+  | "secret"
+  | "trivial";
 
 export interface CaptureSafetyDecision {
   allowed: boolean;
@@ -134,6 +135,30 @@ const CONTEXT_COMPACTION_PATTERNS: Array<{ name: string; re: RegExp }> = [
   { name: "critical-context-block", re: /^## Critical Context\b/m },
 ];
 
+/**
+ * Attachment line patterns — matched against trimmed lines for full-line removal.
+ */
+const ATTACHMENT_LINE_PATTERNS: RegExp[] = [
+  /^\[Image attached at:\s*.*\]\s*$/i,
+  /^\[inline image\/[^\]]*data omitted\]\s*$/i,
+  /^\[screenshot\]\s*$/i,
+];
+
+/**
+ * Inline attachment patterns — matched within lines for partial removal.
+ */
+const INLINE_ATTACHMENT_PATTERNS: RegExp[] = [
+  /\[Image attached at:\s*[^\]]*\]/gi,
+  /\[inline image\/[^\]]*data omitted\]/gi,
+  /\[screenshot\]/gi,
+  /(?:[A-Za-z]:)?[^\s\]]*[/\\]image_cache[/\\]img_[A-Za-z0-9_-]+\.(?:jpe?g|png|webp|gif)\b/gi,
+];
+
+/**
+ * Trivial/ACK pattern — matches short acknowledgements that should not enter journal.
+ */
+const TRIVIAL_RE = /^(?:ok|okay|kk|k|yes|no|yep|nope|sure|thanks|thank you|thx|ty|got it|roger|understood|noted|acknowledged|done|hi|hello|hey|yo|早|早安|你好|嗨|在吗|在嗎|谢谢|謝謝|收到|明白|明白了|了解|了解了|好的|好)(?:[!！,.。?？~\s]*)$/i;
+
 function matchPattern(
   patterns: Array<{ name: string; re: RegExp }>,
   text: string,
@@ -155,31 +180,77 @@ function matchSecret(text: string): { name: string } | null {
   return null;
 }
 
-export function evaluateCaptureSafety(text: string): CaptureSafetyDecision {
-  const trimmed = text.trim();
-  if (!trimmed) return { allowed: false, reason: "empty" };
+/**
+ * Sanitize text by removing gateway attachment markers before capture/journal storage.
+ *
+ * The LLM may receive images through native vision paths, but scope-recall should not
+ * persist local cache paths or inline-image placeholders as memory material. Keeps the
+ * user's surrounding text so a screenshot question can still be represented.
+ */
+export function sanitizeCaptureText(text: string | null | undefined): string {
+  if (!text) return "";
+  const cleaned = text.trim();
+  if (!cleaned) return "";
 
-  const injected = matchPattern(INJECTED_CONTEXT_PATTERNS, trimmed);
+  const keptLines: string[] = [];
+  for (const line of cleaned.split(/\r?\n/)) {
+    const stripped = line.trim();
+    // Skip full-line attachment markers
+    if (ATTACHMENT_LINE_PATTERNS.some((p) => p.test(stripped))) {
+      continue;
+    }
+    // Remove inline attachment markers
+    let sanitizedLine = line.trimEnd();
+    for (const pattern of INLINE_ATTACHMENT_PATTERNS) {
+      sanitizedLine = sanitizedLine.replace(pattern, "");
+    }
+    // Collapse multiple spaces within the line
+    sanitizedLine = sanitizedLine.replace(/[ \t]{2,}/g, " ").trim();
+    // Keep the line (even if empty, to preserve paragraph structure)
+    keptLines.push(sanitizedLine);
+  }
+  const sanitized = keptLines.join("\n").trim();
+  return sanitized.replace(/\n{3,}/g, "\n\n");
+}
+
+/**
+ * Check if text is a trivial acknowledgement that should not enter journal.
+ */
+export function isTrivial(text: string): boolean {
+  return TRIVIAL_RE.test((text || "").trim());
+}
+
+export function evaluateCaptureSafety(text: string): CaptureSafetyDecision {
+  // Sanitize attachment markers first
+  const sanitized = sanitizeCaptureText(text);
+  if (!sanitized) return { allowed: false, reason: "empty" };
+
+  // Check trivial/ACK
+  if (isTrivial(sanitized)) {
+    return { allowed: false, reason: "trivial" };
+  }
+
+  const injected = matchPattern(INJECTED_CONTEXT_PATTERNS, sanitized);
   if (injected) {
     return { allowed: false, reason: "injected-context", pattern: injected.name };
   }
 
-  const wrapper = matchPattern(SYSTEM_WRAPPER_PATTERNS, trimmed);
+  const wrapper = matchPattern(SYSTEM_WRAPPER_PATTERNS, sanitized);
   if (wrapper) {
     return { allowed: false, reason: "system-wrapper", pattern: wrapper.name };
   }
 
-  const operationalTrace = matchPattern(OPERATIONAL_TRACE_PATTERNS, trimmed);
+  const operationalTrace = matchPattern(OPERATIONAL_TRACE_PATTERNS, sanitized);
   if (operationalTrace) {
     return { allowed: false, reason: "operational-trace", pattern: operationalTrace.name };
   }
 
-  const compaction = matchPattern(CONTEXT_COMPACTION_PATTERNS, trimmed);
+  const compaction = matchPattern(CONTEXT_COMPACTION_PATTERNS, sanitized);
   if (compaction) {
     return { allowed: false, reason: "context-compaction", pattern: compaction.name };
   }
 
-  const secret = matchSecret(trimmed);
+  const secret = matchSecret(sanitized);
   if (secret) {
     return { allowed: false, reason: "secret", pattern: secret.name };
   }

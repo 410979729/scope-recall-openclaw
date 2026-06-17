@@ -1,4 +1,4 @@
-import { evaluateCaptureSafety } from "./capture-safety.js";
+import { evaluateCaptureSafety, sanitizeCaptureText } from "./capture-safety.js";
 
 const AUTO_CAPTURE_INBOUND_META_SENTINELS = [
   "Conversation info (untrusted metadata):",
@@ -92,6 +92,9 @@ export function normalizeAutoCaptureText(
   const normalized = stripAutoCaptureInjectedPrefix(role, text);
   if (!normalized) return null;
   if (!evaluateCaptureSafety(normalized).allowed) return null;
-  if (shouldSkipMessage?.(role, normalized)) return null;
-  return normalized;
+  // Sanitize attachment markers before returning for storage
+  const sanitized = sanitizeCaptureText(normalized);
+  if (!sanitized) return null;
+  if (shouldSkipMessage?.(role, sanitized)) return null;
+  return sanitized;
 }

@@ -1,39 +1,18 @@
 # Changelog
 
-## 1.0.19
+## 1.0.20
 
-- Restore the ESM-safe `createRequire(import.meta.url)` shim used by the
-  LanceDB loader so compiled runtime CLI commands can load `@lancedb/lancedb`
-  without `require is not defined`.
+- Added `sanitizeCaptureText()` to strip gateway image attachment markers and local `image_cache/img_*` paths before journal/capture storage, preventing local cache paths from leaking into durable memories.
+- Added `isTrivial()` filter so short acknowledgements like "Understood.", "Noted.", "好的", "收到" are rejected before entering the journal, matching Hermes scope-recall v1.1.1 behavior.
+- `evaluateCaptureSafety()` now sanitizes attachment markers and checks triviality before other safety gates.
+- `normalizeAutoCaptureText()` and `memory_store` now persist sanitized text, ensuring attachment markers never reach SQLite/vector storage.
+- Added regression tests for attachment sanitization, trivial ACK filtering, and end-to-end capture safety with markers.
 
-## 1.0.18
-
-- Publish a runtime-focused package artifact: the npm pack now ships compiled
-  `dist/` output and public docs/metadata, while omitting test, release, and
-  skill-authoring helper files that are not needed at runtime.
-- Make workspace self-improvement reminders and `.learnings` writes opt-in
-  instead of default-on.
-- Make rejected-admission audit persistence opt-in and redact
-  conversation-derived text in rejected-audit records.
-- Add stronger config disclosures for hosted embedding providers and auto-recall
-  prompt injection.
-- Rebuild `dist/` from source and remove the jiti runtime wrapper.
-
-## 1.0.17
-
-- Restored fail-closed agent context handling for all memory tools; missing OpenClaw runtime identity no longer falls back to `agent:main`.
-- Hardened `memory_store_secret_index` so free-text metadata fields are rejected by the capture-safety filter before they can enter SQLite/FTS/vector indexes.
-- Added `rejected` state support to operator schemas and default archive-layer handling for rejected governance outcomes.
-- Added manifest `toolMetadata` availability guards for management-only tools while keeping `contracts.tools` as the full static ownership list.
-- Added a TypeScript `typecheck` gate and safety regression tests for missing agent context, secret-index metadata, and rejected-state schemas.
-
-## 1.0.16
-
-- Aligned the OpenClaw port with the latest Hermes `scope-recall` conflict-governance behavior: contradiction evidence now creates review metadata and bidirectional `contradicts` relations instead of automatically hiding older memories.
-- Suppressed `archived`, `obsolete`, `rejected`, and `superseded` lifecycle rows from default recall activity checks.
-- Added the gated `memory_govern` review tool for conflict-review rows, local/working scratch, legacy rows, archived/inactive lifecycle rows, and low-confidence auto-capture candidates.
-- Added `scripts/migrate-legacy-hygiene.mjs`, a dry-run-first, backup-backed OpenClaw SQLite hygiene migrator for archiving legacy scratch rows and normalizing missing durable metadata.
-- Added regression tests for conflict review, lifecycle suppression, governance candidate scanning, legacy hygiene migration, and transient reflection retry behavior.
+- Added `sanitizeCaptureText()` to strip gateway image attachment markers and local `image_cache/img_*` paths before journal/capture storage, preventing local cache paths from leaking into durable memories.
+- Added `isTrivial()` filter so short acknowledgements like "Understood.", "Noted.", "好的", "收到" are rejected before entering the journal, matching Hermes scope-recall v1.1.1 behavior.
+- `evaluateCaptureSafety()` now sanitizes attachment markers and checks triviality before other safety gates.
+- `normalizeAutoCaptureText()` and `memory_store` now persist sanitized text, ensuring attachment markers never reach SQLite/vector storage.
+- Added regression tests for attachment sanitization, trivial ACK filtering, and end-to-end capture safety with markers.
 
 ## 1.0.15
 
