@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.21
+
+- Fixed smart-extractor and reflection-store to sanitize attachment markers before persisting to store
+- Previously these paths called `evaluateCaptureSafety()` for safety check but stored the original unsanitized text
+- Now all ingestion paths (auto-capture, memory_store, smart-extractor, reflection-store) consistently sanitize before storage
+
 ## 1.0.20
 
 - Added `sanitizeCaptureText()` to strip gateway image attachment markers and local `image_cache/img_*` paths before journal/capture storage, preventing local cache paths from leaking into durable memories.

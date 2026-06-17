@@ -33,7 +33,7 @@ import {
   normalizeCategory,
 } from "./memory-categories.js";
 import { isNoise } from "./noise-filter.js";
-import { evaluateCaptureSafety } from "./capture-safety.js";
+import { evaluateCaptureSafety, sanitizeCaptureText } from "./capture-safety.js";
 import type { NoisePrototypeBank } from "./noise-prototypes.js";
 import {
   appendRelation,
@@ -451,7 +451,12 @@ export class SmartExtractor {
         continue;
       }
 
-      candidates.push({ category, abstract, overview, content });
+      // Sanitize attachment markers before persisting
+      const sanitizedAbstract = sanitizeCaptureText(abstract) || abstract;
+      const sanitizedOverview = sanitizeCaptureText(overview) || overview;
+      const sanitizedContent = sanitizeCaptureText(content) || content;
+
+      candidates.push({ category, abstract: sanitizedAbstract, overview: sanitizedOverview, content: sanitizedContent });
     }
 
     this.debugLog(

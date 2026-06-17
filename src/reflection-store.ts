@@ -18,7 +18,7 @@ import {
 } from "./reflection-item-store.js";
 import { getReflectionMappedDecayDefaults, type ReflectionMappedKind } from "./reflection-mapped-metadata.js";
 import { computeReflectionScore, normalizeReflectionLineForAggregation } from "./reflection-ranking.js";
-import { evaluateCaptureSafety } from "./capture-safety.js";
+import { evaluateCaptureSafety, sanitizeCaptureText } from "./capture-safety.js";
 
 export const REFLECTION_DERIVE_LOGISTIC_MIDPOINT_DAYS = 3;
 export const REFLECTION_DERIVE_LOGISTIC_K = 1.2;
@@ -199,7 +199,10 @@ export async function storeReflectionToLanceDB(params: StoreReflectionToLanceDBP
       continue;
     }
 
-    const vector = await params.embedPassage(payload.text);
+    // Sanitize attachment markers before persisting
+    const sanitizedText = sanitizeCaptureText(payload.text) || payload.text;
+
+    const vector = await params.embedPassage(sanitizedText);
 
     if (payload.kind === "combined-legacy") {
       const existing = await params.vectorSearch(vector, 1, 0.1, [params.scope]);
@@ -209,7 +212,7 @@ export async function storeReflectionToLanceDB(params: StoreReflectionToLanceDBP
     }
 
     await params.store({
-      text: payload.text,
+      text: sanitizedText,
       vector,
       category: "reflection",
       scope: params.scope,

@@ -4,7 +4,7 @@ import { buildReflectionEventPayload, createReflectionEventId } from "./reflecti
 import { buildReflectionItemPayloads, getReflectionItemDecayDefaults, REFLECTION_DERIVED_DECAY_K, REFLECTION_DERIVED_DECAY_MIDPOINT_DAYS, REFLECTION_INVARIANT_DECAY_K, REFLECTION_INVARIANT_DECAY_MIDPOINT_DAYS, } from "./reflection-item-store.js";
 import { getReflectionMappedDecayDefaults } from "./reflection-mapped-metadata.js";
 import { computeReflectionScore, normalizeReflectionLineForAggregation } from "./reflection-ranking.js";
-import { evaluateCaptureSafety } from "./capture-safety.js";
+import { evaluateCaptureSafety, sanitizeCaptureText } from "./capture-safety.js";
 export const REFLECTION_DERIVE_LOGISTIC_MIDPOINT_DAYS = 3;
 export const REFLECTION_DERIVE_LOGISTIC_K = 1.2;
 export const REFLECTION_DERIVE_FALLBACK_BASE_WEIGHT = 0.35;
@@ -111,7 +111,9 @@ export async function storeReflectionToLanceDB(params) {
         if (!safety.allowed) {
             continue;
         }
-        const vector = await params.embedPassage(payload.text);
+        // Sanitize attachment markers before persisting
+        const sanitizedText = sanitizeCaptureText(payload.text) || payload.text;
+        const vector = await params.embedPassage(sanitizedText);
         if (payload.kind === "combined-legacy") {
             const existing = await params.vectorSearch(vector, 1, 0.1, [params.scope]);
             if (existing.length > 0 && existing[0].score > dedupeThreshold) {
@@ -119,7 +121,7 @@ export async function storeReflectionToLanceDB(params) {
             }
         }
         await params.store({
-            text: payload.text,
+            text: sanitizedText,
             vector,
             category: "reflection",
             scope: params.scope,

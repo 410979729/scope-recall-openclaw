@@ -9,7 +9,7 @@ import { buildExtractionPrompt, buildDedupPrompt, buildMergePrompt, } from "./ex
 import { AdmissionController, } from "./admission-control.js";
 import { ALWAYS_MERGE_CATEGORIES, MERGE_SUPPORTED_CATEGORIES, TEMPORAL_VERSIONED_CATEGORIES, normalizeCategory, } from "./memory-categories.js";
 import { isNoise } from "./noise-filter.js";
-import { evaluateCaptureSafety } from "./capture-safety.js";
+import { evaluateCaptureSafety, sanitizeCaptureText } from "./capture-safety.js";
 import { appendRelation, buildSmartMetadata, deriveFactKey, parseSmartMetadata, stringifySmartMetadata, parseSupportInfo, updateSupportStats, } from "./smart-metadata.js";
 import { isUserMdExclusiveMemory, } from "./workspace-boundary.js";
 import { inferAtomicBrandItemPreferenceSlot } from "./preference-slots.js";
@@ -277,7 +277,11 @@ export class SmartExtractor {
                 this.debugLog(`scope-recall-openclaw: smart-extractor: dropping candidate due to noise abstract category=${category} abstract=${JSON.stringify(abstract.slice(0, 120))}`);
                 continue;
             }
-            candidates.push({ category, abstract, overview, content });
+            // Sanitize attachment markers before persisting
+            const sanitizedAbstract = sanitizeCaptureText(abstract) || abstract;
+            const sanitizedOverview = sanitizeCaptureText(overview) || overview;
+            const sanitizedContent = sanitizeCaptureText(content) || content;
+            candidates.push({ category, abstract: sanitizedAbstract, overview: sanitizedOverview, content: sanitizedContent });
         }
         this.debugLog(`scope-recall-openclaw: smart-extractor: validation summary accepted=${candidates.length}, invalidCategory=${invalidCategoryCount}, shortAbstract=${shortAbstractCount}, noiseAbstract=${noiseAbstractCount}, unsafe=${unsafeCandidateCount}`);
         return candidates;
